@@ -1,0 +1,174 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+
+:root {
+  --background: #f4f6f9;
+  --foreground: #0f172a;
+  --primary: #1e3a5f;
+  --primary-foreground: #ffffff;
+  --secondary: #3b6cb7;
+  --secondary-foreground: #ffffff;
+  --accent: #e8eef8;
+  --accent-foreground: #1e3a5f;
+  --muted: #f1f5f9;
+  --muted-foreground: #64748b;
+  --card: #ffffff;
+  --card-foreground: #0f172a;
+  --border: #e2e8f0;
+  --input: #e2e8f0;
+  --ring: #3b6cb7;
+  --radius: 10px;
+  --font-sans: 'Plus Jakarta Sans', sans-serif;
+
+  --status-present: #16a34a;
+  --status-present-bg: #f0fdf4;
+  --status-present-border: #bbf7d0;
+  --status-late: #ea580c;
+  --status-late-bg: #fff7ed;
+  --status-late-border: #fed7aa;
+  --status-sick: #ca8a04;
+  --status-sick-bg: #fefce8;
+  --status-sick-border: #fde68a;
+  --status-permit: #2563eb;
+  --status-permit-bg: #eff6ff;
+  --status-permit-border: #bfdbfe;
+  --status-duty: #7c3aed;
+  --status-duty-bg: #f5f3ff;
+  --status-duty-border: #ddd6fe;
+  --status-alpha: #dc2626;
+  --status-alpha-bg: #fef2f2;
+  --status-alpha-border: #fecaca;
+}
+
+@layer base {
+  * {
+    box-sizing: border-box;
+    border-color: var(--border);
+  }
+
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  h1, h2, h3, h4, h5, h6, p {
+    margin: 0;
+  }
+}
+
+@layer utilities {
+  .font-tabular {
+    font-variant-numeric: tabular-nums;
+  }
+
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background-color: var(--border);
+    border-radius: 3px;
+  }
+
+  .status-h {
+    background-color: var(--status-present-bg);
+    color: var(--status-present);
+    border: 1px solid var(--status-present-border);
+  }
+
+  .status-t {
+    background-color: var(--status-late-bg);
+    color: var(--status-late);
+    border: 1px solid var(--status-late-border);
+  }
+
+  .status-s {
+    background-color: var(--status-sick-bg);
+    color: var(--status-sick);
+    border: 1px solid var(--status-sick-border);
+  }
+
+  .status-i {
+    background-color: var(--status-permit-bg);
+    color: var(--status-permit);
+    border: 1px solid var(--status-permit-border);
+  }
+
+  .status-dl {
+    background-color: var(--status-duty-bg);
+    color: var(--status-duty);
+    border: 1px solid var(--status-duty-border);
+  }
+
+  .status-a {
+    background-color: var(--status-alpha-bg);
+    color: var(--status-alpha);
+    border: 1px solid var(--status-alpha-border);
+  }
+
+  .sidebar-transition {
+    transition: width 300ms ease;
+  }
+
+  .content-transition {
+    transition: margin-left 300ms ease;
+  }
+
+  .fade-in {
+    animation: fadeIn 200ms ease forwards;
+  }
+
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .scale-click {
+    transition: transform 150ms ease, box-shadow 150ms ease;
+  }
+
+  .scale-click:active {
+    transform: scale(0.97);
+  }
+
+  .pulse-highlight {
+    animation: pulseHighlight 600ms ease;
+  }
+
+  @keyframes pulseHighlight {
+    0% { background-color: transparent; }
+    30% { background-color: #fef9c3; }
+    100% { background-color: transparent; }
+  }
+
+  .weekend-col {
+    background-color: #f8fafc;
+    color: var(--muted-foreground);
+  }
+
+  .matrix-cell {
+    min-width: 36px;
+    width: 36px;
+    height: 36px;
+  }
+}
