@@ -21,15 +21,14 @@ export async function POST(req: NextRequest) {
       prisma.attendanceLog.findMany({ where: { pin: { in: uniquePins } } }),
     ]);
 
-    // Beri tipe <string, any> eksplisit pada Map agar tidak dibaca <string, never>
     const existingEmpMap = new Map<string, any>(existingEmployees.map((e) => [e.pin, e]));
     const existingLogMap = new Map<string, any>(existingLogs.map((l) => [`${l.pin}_${l.date}`, l]));
 
     const employeesToCreate: any[] = [];
     const logsToCreate: any[] = [];
-    const logUpdates: any[] = [];
+    const logsToUpdate: any[] = [];
 
-    // 3. Olah data di memory Vercel
+    // 3. Olah data di memory
     for (const log of attendanceLogs) {
       const pinStr = String(log.pin).trim();
       const logKey = `${pinStr}_${log.date}`;
@@ -48,17 +47,15 @@ export async function POST(req: NextRequest) {
       // Pisahkan Log Baru vs Log Update
       const existing = existingLogMap.get(logKey);
       if (existing) {
-        logUpdates.push(
-          prisma.attendanceLog.update({
-            where: { id: existing.id },
-            data: {
-              checkIn: log.checkIn,
-              checkOut: log.checkOut,
-              status: log.status,
-              flagColor: log.flagColor,
-            },
-          })
-        );
+        logsToUpdate.push({
+          id: existing.id,
+          data: {
+            checkIn: log.checkIn,
+            checkOut: log.checkOut,
+            status: log.status,
+            flagColor: log.flagColor,
+          },
+        });
       } else {
         logsToCreate.push({
           pin: pinStr,
@@ -72,18 +69,24 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // 4. Eksekusi Batch Save ke PostgreSQL dalam 1 Transaksi
-    await prisma.$transaction(async (tx) => {
-      if (employeesToCreate.length > 0) {
-        await tx.employee.createMany({ data: employeesToCreate, skipDuplicates: true });
+    // 4. Eksekusi Batch Save secara terkontrol agar tidak kehabisan Connection Pool
+    if (employeesToCreate.length > 0) {
+      await prisma.employee.createMany({ data: employeesToCreate, skipDuplicates: true });
+    }
+
+    if (logsToCreate.length > 0) {
+      await prisma.attendanceLog.createMany({ data: logsToCreate, skipDuplicates: true });
+    }
+
+    // Update dilakukan satu per satu menggunakan koneksi tunggal yang digunakan kembali
+    if (logsToUpdate.length > 0) {
+      for (const item of logsToUpdate) {
+        await prisma.attendanceLog.update({
+          where: { id: item.id },
+          data: item.data,
+        });
       }
-      if (logsToCreate.length > 0) {
-        await tx.attendanceLog.createMany({ data: logsToCreate, skipDuplicates: true });
-      }
-      if (logUpdates.length > 0) {
-        await Promise.all(logUpdates);
-      }
-    });
+    }
 
     return NextResponse.json({
       success: true,
