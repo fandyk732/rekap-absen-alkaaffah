@@ -12,85 +12,81 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, error: 'Tidak ada data log.' }, { status: 400 });
     }
 
-    // 1. Ambil daftar PIN unik dari log yang di-upload
+    // 1. Kumpulkan semua PIN dan Date unik dari payload upload
     const uniquePins = Array.from(new Set(attendanceLogs.map((l: any) => String(l.pin).trim())));
+    const uniqueDates = Array.from(new Set(attendanceLogs.map((l: any) => String(l.date).trim())));
 
-    // 2. Fetch pegawai & log yang sudah ada secara massal
-    const [existingEmployees, existingLogs] = await Promise.all([
-      prisma.employee.findMany({ where: { pin: { in: uniquePins } } }),
-      prisma.attendanceLog.findMany({ where: { pin: { in: uniquePins } } }),
-    ]);
-
-    const existingEmpMap = new Map<string, any>(existingEmployees.map((e) => [e.pin, e]));
-    const existingLogMap = new Map<string, any>(existingLogs.map((l) => [`${l.pin}_${l.date}`, l]));
+    // 2. Fetch pegawai yang ada untuk auto-register yang belum terdaftar
+    const existingEmployees = await prisma.employee.findMany({
+      where: { pin: { in: uniquePins } },
+      select: { pin: true },
+    });
+    const existingPinSet = new Set(existingEmployees.map((e) => e.pin));
 
     const employeesToCreate: any[] = [];
     const logsToCreate: any[] = [];
-    const logsToUpdate: any[] = [];
 
-    // 3. Olah data di memory
+    // 3. Olah data di memori
     for (const log of attendanceLogs) {
       const pinStr = String(log.pin).trim();
-      const logKey = `${pinStr}_${log.date}`;
 
-      // Auto-register Pegawai jika belum ada
-      if (!existingEmpMap.has(pinStr)) {
+      // Buat pegawai baru jika belum ada
+      if (!existingPinSet.has(pinStr)) {
         employeesToCreate.push({
           pin: pinStr,
           name: log.name || `Pegawai ${pinStr}`,
           role: 'Pegawai',
           status: 'Aktif',
         });
-        existingEmpMap.set(pinStr, true);
+        existingPinSet.add(pinStr); // Prevent duplikasi
       }
 
-      // Pisahkan Log Baru vs Log Update
-      const existing = existingLogMap.get(logKey);
-      if (existing) {
-        logsToUpdate.push({
-          id: existing.id,
-          data: {
-            checkIn: log.checkIn,
-            checkOut: log.checkOut,
-            status: log.status,
-            flagColor: log.flagColor,
+      logsToCreate.push({
+        pin: pinStr,
+        name: log.name,
+        date: log.date,
+        checkIn: log.checkIn,
+        checkOut: log.checkOut,
+        status: log.status,
+        flagColor: log.flagColor,
+      });
+    }
+
+    // 4. BATCH TRANSACTION: Hanya butuh 3 Query ke PostgreSQL!
+    await prisma.$transaction(
+      async (tx) => {
+        // A. Auto-register Pegawai Baru (1 Query)
+        if (employeesToCreate.length > 0) {
+          await tx.employee.createMany({
+            data: employeesToCreate,
+            skipDuplicates: true,
+          });
+        }
+
+        // B. Hapus log lama yang bentrok tanggal & PIN-nya (1 Query)
+        await tx.attendanceLog.deleteMany({
+          where: {
+            pin: { in: uniquePins },
+            date: { in: uniqueDates },
           },
         });
-      } else {
-        logsToCreate.push({
-          pin: pinStr,
-          name: log.name,
-          date: log.date,
-          checkIn: log.checkIn,
-          checkOut: log.checkOut,
-          status: log.status,
-          flagColor: log.flagColor,
-        });
+
+        // C. Insert seluruh log baru secara bersamaan (1 Query)
+        if (logsToCreate.length > 0) {
+          await tx.attendanceLog.createMany({
+            data: logsToCreate,
+            skipDuplicates: true,
+          });
+        }
+      },
+      {
+        timeout: 15000, // Timeout transaksi 15 detik (sangat cukup untuk 3 query)
       }
-    }
-
-    // 4. Eksekusi Batch Save secara terkontrol agar tidak kehabisan Connection Pool
-    if (employeesToCreate.length > 0) {
-      await prisma.employee.createMany({ data: employeesToCreate, skipDuplicates: true });
-    }
-
-    if (logsToCreate.length > 0) {
-      await prisma.attendanceLog.createMany({ data: logsToCreate, skipDuplicates: true });
-    }
-
-    // Update dilakukan satu per satu menggunakan koneksi tunggal yang digunakan kembali
-    if (logsToUpdate.length > 0) {
-      for (const item of logsToUpdate) {
-        await prisma.attendanceLog.update({
-          where: { id: item.id },
-          data: item.data,
-        });
-      }
-    }
+    );
 
     return NextResponse.json({
       success: true,
-      message: `${attendanceLogs.length} data log berhasil disinkronkan ke Database Cloud.`,
+      message: `${attendanceLogs.length} data log berhasil disinkronkan ke Cloud Database.`,
     });
   } catch (error: any) {
     console.error('Error Sync Attendance:', error);
