@@ -44,13 +44,26 @@ export default function Topbar() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const handleLogout = () => {
+  // LOGIKA LOGOUT
+  const handleLogout = async () => {
     if (confirm('Apakah Anda yakin ingin keluar dari sistem?')) {
-      window.location.href = '/login';
+      try {
+        const res = await fetch('/api/auth/logout', { method: 'POST' });
+        const json = await res.json();
+
+        if (json.success) {
+          window.location.href = '/login';
+        } else {
+          alert('Gagal melakukan logout.');
+        }
+      } catch (err) {
+        console.error(err);
+        alert('Terjadi kesalahan saat logout.');
+      }
     }
   };
 
-  // 2. Fetch setting saat modal dibuka
+  // Fetch setting saat modal dibuka
   useEffect(() => {
     if (showSettingsModal) {
       fetch('/api/settings')
@@ -66,7 +79,7 @@ export default function Topbar() {
     }
   }, [showSettingsModal]);
 
-  // 3. Fungsi Simpan Setting
+  // Fungsi Simpan Setting
   const handleSaveSettings = async () => {
     setIsSaving(true);
     try {
@@ -79,7 +92,7 @@ export default function Topbar() {
       if (json.success) {
         alert('Pengaturan berhasil disimpan!');
         setShowSettingsModal(false);
-        window.location.reload(); // Reload agar dashboard menghitung ulang batas terlambat baru
+        window.location.reload();
       }
     } catch (err) {
       alert('Gagal menyimpan pengaturan.');
@@ -91,33 +104,33 @@ export default function Topbar() {
   return (
     <>
       <header className="h-16 bg-white border-b border-slate-200 px-6 flex items-center justify-between sticky top-0 z-30">
-  {/* Bagian Kiri: Judul Software & Hari/Tanggal */}
-  <div className="flex items-center gap-6">
-    {/* Label Software */}
-    <div>
-      <h1 className="text-sm font-bold text-slate-800 tracking-tight">
-        Software Rekap Kehadiran Karyawan
-      </h1>
-      <p className="text-[10px] text-slate-400 font-medium">
-        SMKS Al Kaaffah
-      </p>
-    </div>
+        {/* Bagian Kiri: Judul Software & Hari/Tanggal */}
+        <div className="flex items-center gap-6">
+          <div>
+            <h1 className="text-sm font-bold text-slate-800 tracking-tight">
+              Software Rekap Kehadiran Karyawan
+            </h1>
+            <p className="text-[10px] text-slate-400 font-medium">SMKS Al Kaaffah</p>
+          </div>
 
-    {/* Pembatas / Divider Vertical */}
-    <div className="h-8 w-[1px] bg-slate-200 hidden sm:block" />
+          <div className="h-8 w-[1px] bg-slate-200 hidden sm:block" />
 
-    {/* Info Hari & Tanggal */}
-    <div className="hidden sm:block">
-      <div className="text-[10px] uppercase font-bold text-slate-400">Hari ini</div>
-      <div className="text-xs font-semibold text-slate-700">
-        {new Date().toLocaleDateString('id-ID', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' })}
-      </div>
-    </div>
-  </div>
+          <div className="hidden sm:block">
+            <div className="text-[10px] uppercase font-bold text-slate-400">Hari ini</div>
+            <div className="text-xs font-semibold text-slate-700">
+              {new Date().toLocaleDateString('id-ID', {
+                weekday: 'long',
+                day: '2-digit',
+                month: 'long',
+                year: 'numeric',
+              })}
+            </div>
+          </div>
+        </div>
 
         {/* Right Actions */}
         <div className="flex items-center gap-3">
-          {/* 1. Bell Notifikasi */}
+          {/* Bell Notifikasi */}
           <div className="relative" ref={notifRef}>
             <button
               onClick={() => {
@@ -146,7 +159,9 @@ export default function Topbar() {
 
                 <div className="max-h-64 overflow-y-auto divide-y divide-slate-50">
                   {notifData.notifications.length === 0 ? (
-                    <div className="p-4 text-center text-xs text-slate-400">Tidak ada notifikasi baru.</div>
+                    <div className="p-4 text-center text-xs text-slate-400">
+                      Tidak ada notifikasi baru.
+                    </div>
                   ) : (
                     notifData.notifications.map((n) => (
                       <Link
@@ -165,7 +180,7 @@ export default function Topbar() {
             )}
           </div>
 
-          {/* 2. Profil Utama & Menu Dropdown */}
+          {/* Profil Utama & Menu Dropdown */}
           <div className="relative" ref={profileRef}>
             <button
               onClick={() => {
@@ -230,14 +245,28 @@ export default function Topbar() {
           <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4 shadow-xl">
             <div className="flex justify-between items-center border-b pb-3">
               <h3 className="font-bold text-slate-900 text-lg">Profil Utama Admin</h3>
-              <button onClick={() => setShowProfileModal(false)}><X className="w-5 h-5 text-slate-400" /></button>
+              <button onClick={() => setShowProfileModal(false)}>
+                <X className="w-5 h-5 text-slate-400" />
+              </button>
             </div>
             <div className="space-y-3 text-sm">
-              <div><label className="text-xs text-slate-400 font-semibold">Nama Lengkap</label><p className="font-bold text-slate-800">Admin Utama SMKS Al Kaaffah</p></div>
-              <div><label className="text-xs text-slate-400 font-semibold">Email</label><p className="font-bold text-slate-800">admin@smksalkaaffah.sch.id</p></div>
-              <div><label className="text-xs text-slate-400 font-semibold">Jabatan / Akses</label><p className="font-bold text-indigo-600">Tata Usaha (Super Admin)</p></div>
+              <div>
+                <label className="text-xs text-slate-400 font-semibold">Nama Lengkap</label>
+                <p className="font-bold text-slate-800">Admin Utama SMKS Al Kaaffah</p>
+              </div>
+              <div>
+                <label className="text-xs text-slate-400 font-semibold">Email</label>
+                <p className="font-bold text-slate-800">admin@smksalkaaffah.sch.id</p>
+              </div>
+              <div>
+                <label className="text-xs text-slate-400 font-semibold">Jabatan / Akses</label>
+                <p className="font-bold text-indigo-600">Tata Usaha (Super Admin)</p>
+              </div>
             </div>
-            <button onClick={() => setShowProfileModal(false)} className="w-full bg-slate-100 text-slate-700 py-2 rounded-xl text-xs font-bold hover:bg-slate-200">
+            <button
+              onClick={() => setShowProfileModal(false)}
+              className="w-full bg-slate-100 text-slate-700 py-2 rounded-xl text-xs font-bold hover:bg-slate-200"
+            >
               Tutup
             </button>
           </div>
@@ -246,50 +275,52 @@ export default function Topbar() {
 
       {/* Modal Pengaturan */}
       {showSettingsModal && (
-  <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-    <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-5 shadow-xl">
-      <div className="flex justify-between items-center border-b pb-3">
-        <h3 className="font-bold text-slate-900 text-lg">Pengaturan Sistem</h3>
-        <button onClick={() => setShowSettingsModal(false)}><X className="w-5 h-5 text-slate-400" /></button>
-      </div>
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-5 shadow-xl">
+            <div className="flex justify-between items-center border-b pb-3">
+              <h3 className="font-bold text-slate-900 text-lg">Pengaturan Sistem</h3>
+              <button onClick={() => setShowSettingsModal(false)}>
+                <X className="w-5 h-5 text-slate-400" />
+              </button>
+            </div>
 
-      <div className="space-y-4 text-sm">
-        {/* Toggle Email */}
-        <div className="flex items-center justify-between py-2 border-b border-slate-100">
-          <span className="text-slate-700 font-medium">Notifikasi Email Admin</span>
-          <input
-            type="checkbox"
-            checked={settings.emailNotif}
-            onChange={(e) => setSettings({ ...settings, emailNotif: e.target.checked })}
-            className="accent-indigo-600 w-5 h-5 cursor-pointer"
-          />
-        </div>
+            <div className="space-y-4 text-sm">
+              <div className="flex items-center justify-between py-2 border-b border-slate-100">
+                <span className="text-slate-700 font-medium">Notifikasi Email Admin</span>
+                <input
+                  type="checkbox"
+                  checked={settings.emailNotif}
+                  onChange={(e) => setSettings({ ...settings, emailNotif: e.target.checked })}
+                  className="accent-indigo-600 w-5 h-5 cursor-pointer"
+                />
+              </div>
 
-        {/* Input Jam Keterlambatan */}
-        <div className="flex items-center justify-between py-2 border-b border-slate-100">
-          <div>
-            <span className="text-slate-700 font-medium block">Batas Jam Keterlambatan</span>
-            <span className="text-[11px] text-slate-400">Log masuk di atas jam ini dianggap telat</span>
+              <div className="flex items-center justify-between py-2 border-b border-slate-100">
+                <div>
+                  <span className="text-slate-700 font-medium block">Batas Jam Keterlambatan</span>
+                  <span className="text-[11px] text-slate-400">
+                    Log masuk di atas jam ini dianggap telat
+                  </span>
+                </div>
+                <input
+                  type="time"
+                  value={settings.workStartTime}
+                  onChange={(e) => setSettings({ ...settings, workStartTime: e.target.value })}
+                  className="border border-slate-300 rounded-lg px-3 py-1.5 font-mono text-sm font-bold text-indigo-600 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+            </div>
+
+            <button
+              onClick={handleSaveSettings}
+              disabled={isSaving}
+              className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-2.5 rounded-xl text-xs font-bold transition-colors disabled:opacity-50"
+            >
+              {isSaving ? 'Memproses...' : 'Simpan Pengaturan'}
+            </button>
           </div>
-          <input
-            type="time"
-            value={settings.workStartTime}
-            onChange={(e) => setSettings({ ...settings, workStartTime: e.target.value })}
-            className="border border-slate-300 rounded-lg px-3 py-1.5 font-mono text-sm font-bold text-indigo-600 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-          />
         </div>
-      </div>
-
-      <button
-        onClick={handleSaveSettings}
-        disabled={isSaving}
-        className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-2.5 rounded-xl text-xs font-bold transition-colors disabled:opacity-50"
-      >
-        {isSaving ? 'Memproses...' : 'Simpan Pengaturan'}
-      </button>
-    </div>
-  </div>
-)}
+      )}
     </>
   );
 }

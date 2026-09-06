@@ -24,17 +24,20 @@ model Employee {
 }
 
 model AttendanceLog {
-  id         String   @id @default(uuid())
-  pin        String
-  name       String
-  date       String   // Format: DD-MM-YYYY
-  checkIn    String
-  checkOut   String
-  status     String
-  flagColor  String
-  createdAt  DateTime @default(now())
+  id        String   @id @default(uuid())
+  pin       String
+  name      String
+  date      String   // Format Standar: DD-MM-YYYY atau YYYY-MM-DD
+  checkIn   String
+  checkOut  String
+  status    String
+  flagColor String
+  createdAt DateTime @default(now())
 
-  employee   Employee? @relation(fields: [pin], references: [pin], onDelete: Cascade)
+  employee  Employee? @relation(fields: [pin], references: [pin], onDelete: Cascade)
+
+  @@index([pin])
+  @@index([date])
 }
 
 model Permission {
@@ -42,18 +45,39 @@ model Permission {
   pin          String
   employeeName String
   type         String   // Izin | Sakit | Cuti | Dinas Luar
-  startDate    String   // Format: DD-MM-YYYY
-  endDate      String   // Format: DD-MM-YYYY
+  startDate    String   
+  endDate      String   
   reason       String
   status       String   @default("Pending") // Pending | Approved | Rejected
   createdAt    DateTime @default(now())
 
   employee     Employee? @relation(fields: [pin], references: [pin], onDelete: Cascade)
+
+  @@index([pin])
 }
 
 model Setting {
   id            String   @id @default("default")
-  workStartTime String   @default("07:15") // Jam batas terlambat
+  workStartTime String   @default("07:15") 
   emailNotif    Boolean  @default(true)
   updatedAt     DateTime @updatedAt
+}
+
+model Holiday {
+  id          String   @id @default(cuid())
+  date        String   // Format Standar: YYYY-MM-DD
+  description String   
+  createdAt   DateTime @default(now())
+
+  @@index([date])
+}
+
+model User {
+  id        String   @id @default(uuid())
+  username  String   @unique
+  password  String   // Password terenkripsi (bcrypt)
+  name      String
+  role      String   @default("Admin")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }

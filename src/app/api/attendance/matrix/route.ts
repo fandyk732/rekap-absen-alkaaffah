@@ -1,6 +1,25 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 
+// Helper untuk mengonversi string "DD-MM-YYYY" / "YYYY-MM-DD" menjadi Date Object yang valid
+function parseDateString(dateStr: string): Date {
+  if (!dateStr) return new Date(0);
+  const cleanStr = dateStr.trim();
+  
+  if (cleanStr.includes('-')) {
+    const parts = cleanStr.split('-');
+    // Jika format DD-MM-YYYY (contoh: 11-08-2026)
+    if (parts[0].length === 2 && parts[2].length === 4) {
+      return new Date(parseInt(parts[2], 10), parseInt(parts[1], 10) - 1, parseInt(parts[0], 10));
+    }
+    // Jika format YYYY-MM-DD (contoh: 2026-08-11)
+    if (parts[0].length === 4) {
+      return new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+    }
+  }
+  return new Date(cleanStr);
+}
+
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
@@ -9,10 +28,11 @@ export async function GET(req: NextRequest) {
 
     const daysInMonth = new Date(year, month, 0).getDate();
 
-    const [employees, allLogs, permissions] = await Promise.all([
+    const [employees, allLogs, permissions, holidays] = await Promise.all([
       prisma.employee.findMany({ where: { status: 'Aktif' }, orderBy: { name: 'asc' } }),
       prisma.attendanceLog.findMany(),
       prisma.permission.findMany({ where: { status: 'Approved' } }),
+      prisma.holiday.findMany(),
     ]);
 
     const formattedMonth = String(month).padStart(2, '0');
@@ -26,54 +46,87 @@ export async function GET(req: NextRequest) {
 
       for (let day = 1; day <= daysInMonth; day++) {
         const dayStr = String(day).padStart(2, '0');
-        // Pastikan format target date selalu DD-MM-YYYY (contoh: 01-08-2026)
-        const targetDate = `${dayStr}-${formattedMonth}-${year}`;
-        const dateObj = new Date(year, month - 1, day);
-        const dayOfWeek = dateObj.getDay();
+        const targetDate = `${dayStr}-${formattedMonth}-${year}`; // Format DD-MM-YYYY
+        
+        const currentDateObj = new Date(year, month - 1, day);
+        currentDateObj.setHours(0, 0, 0, 0);
 
-        // 🔍 MATCHING FIX: Pakai String() dan trim() untuk menghindari bug tipe data Number vs String
+        const dayOfWeek = currentDateObj.getDay();
+
+        // 1. Variabel format string tanggal untuk komparasi ketat
+        const dateIsoFormat = `${year}-${formattedMonth}-${dayStr}`; // "2026-08-17"
+        const dateLocalFormat = `${dayStr}-${formattedMonth}-${year}`; // "17-08-2026"
+        const dateSingleDigit = `${day}-${month}-${year}`; // "17-8-2026"
+
+        // 2. Matching Log Fingerprint/Mesin
         const record = allLogs.find(
           (l) =>
             String(l.pin).trim() === String(emp.pin).trim() &&
-            (l.date === targetDate || l.date === `${day}-${month}-${year}`)
+            (l.date === targetDate || l.date === dateSingleDigit)
         );
 
-        const approvedPermission = permissions.find(
-          (p) =>
-            String(p.pin).trim() === String(emp.pin).trim() &&
-            targetDate >= p.startDate &&
-            targetDate <= p.endDate
-        );
+        // 3. Matching Permohonan Izin / Sakit yang Approved
+        const approvedPermission = permissions.find((p) => {
+          const pinMatch = String(p.pin).trim() === String(emp.pin).trim();
+          if (!pinMatch) return false;
 
+          const startDate = parseDateString(p.startDate);
+          const endDate = parseDateString(p.endDate);
+          
+          startDate.setHours(0, 0, 0, 0);
+          endDate.setHours(23, 59, 59, 999);
+
+          return currentDateObj >= startDate && currentDateObj <= endDate;
+        });
+        
+        // 4. Matching Hari Libur dari Setting Database
+        const isHolidaySetting = holidays.some((h) => {
+          if (!h.date) return false;
+          const cleanHDate = h.date.trim();
+          return (
+            cleanHDate === dateIsoFormat || 
+            cleanHDate === dateLocalFormat || 
+            cleanHDate === dateSingleDigit
+          );
+        });
+
+        // Pengecekan Utama Status Libur (Prioritas Tinggi)
+        const isWeekendOrHoliday = dayOfWeek === 0 || dayOfWeek === 6 || isHolidaySetting;
+
+        // 5. Penentuan Status Harian
         if (approvedPermission) {
           totalIzin++;
           const codeMap: Record<string, string> = { Sakit: 'S', Cuti: 'C', Izin: 'I', 'Dinas Luar': 'DL' };
+          const pType = approvedPermission.type || 'Izin';
+          const code = codeMap[pType] || 'I';
+
           dailyStatus[day] = {
-            status: `Izin (${approvedPermission.type}: ${approvedPermission.reason})`,
-            code: codeMap[approvedPermission.type] || 'I',
-            color: 'bg-purple-100 text-purple-700 font-bold',
+            status: `${pType} (${approvedPermission.reason || 'Approved'})`,
+            code: code,
+            color: code === 'S' ? 'bg-purple-100 text-purple-700 font-bold' : 'bg-blue-100 text-blue-700 font-bold',
+          };
+        } else if (isWeekendOrHoliday) {
+          // Jika Sabtu, Minggu, atau diset di Menu Pengaturan -> PASTI Libur 'L'
+          dailyStatus[day] = { 
+            status: isHolidaySetting ? 'Libur Nasional / Sekolah' : 'Libur Akhir Pekan', 
+            code: 'L', 
+            color: 'bg-slate-100 text-slate-400 font-medium' 
           };
         } else if (record) {
           if (record.flagColor === 'amber') {
             totalTerlambat++;
-            dailyStatus[day] = { status: record.status, code: 'T', color: 'bg-amber-100 text-amber-800 font-bold', checkIn: record.checkIn };
+            dailyStatus[day] = { status: record.status || 'Terlambat', code: 'T', color: 'bg-amber-100 text-amber-800 font-bold', checkIn: record.checkIn };
           } else if (record.flagColor === 'emerald') {
             totalHadir++;
             dailyStatus[day] = { status: 'Hadir', code: 'H', color: 'bg-emerald-100 text-emerald-800 font-medium', checkIn: record.checkIn };
-          } else if (record.flagColor === 'rose') {
-            if (dayOfWeek === 0 || dayOfWeek === 6) {
-              dailyStatus[day] = { status: 'Libur Akhir Pekan', code: 'L', color: 'bg-slate-100 text-slate-400' };
-            } else {
-              totalMangkir++;
-              dailyStatus[day] = { status: 'Tidak Scan', code: 'A', color: 'bg-rose-100 text-rose-700 font-bold' };
-            }
+          } else {
+            totalMangkir++;
+            dailyStatus[day] = { status: 'Tidak Scan', code: 'A', color: 'bg-rose-100 text-rose-700 font-bold' };
           }
         } else {
-          if (dayOfWeek === 0 || dayOfWeek === 6) {
-            dailyStatus[day] = { status: 'Libur Akhir Pekan', code: 'L', color: 'bg-slate-100 text-slate-400' };
-          } else {
-            dailyStatus[day] = { status: 'Belum/Tidak ada Data', code: '-', color: 'bg-slate-50 text-slate-300' };
-          }
+          // Jika Hari Kerja biasa tapi TIDAK ADA RECORD SCAN -> Alpha (A)
+          totalMangkir++;
+          dailyStatus[day] = { status: 'Tidak Hadir / Alpha', code: 'A', color: 'bg-rose-100 text-rose-700 font-bold' };
         }
       }
 

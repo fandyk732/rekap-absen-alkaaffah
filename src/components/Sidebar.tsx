@@ -51,7 +51,6 @@ const navGroups: NavGroup[] = [
         label: 'Import Fingerprint',
         href: '/fingerprint-import-parser',
         icon: Fingerprint,
-        badge: 2,
       },
       {
         id: 'nav-matrix',
@@ -64,7 +63,6 @@ const navGroups: NavGroup[] = [
         label: 'Izin & Absensi',
         href: '/izin-absensi',
         icon: FileCheck2,
-        badge: 5,
       },
     ],
   },
@@ -76,6 +74,12 @@ const navGroups: NavGroup[] = [
         label: 'Data Pegawai',
         href: '/data-pegawai',
         icon: Users,
+      },
+      {
+        id: 'nav-settings',
+        label: 'Pengaturan',
+        href: '/pengaturan',
+        icon: Settings,
       },
     
     ],

@@ -42,14 +42,12 @@ const parseFlexibleDate = (dateStr: string): Date | null => {
   if (str.includes('-')) {
     const parts = str.split('-');
     if (parts.length === 3) {
-      // Jika format DD-MM-YYYY
       if (parts[0].length === 2 && parts[2].length === 4) {
         const day = parseInt(parts[0], 10);
         const month = parseInt(parts[1], 10) - 1;
         const year = parseInt(parts[2], 10);
         return new Date(year, month, day);
       }
-      // Jika format YYYY-MM-DD
       if (parts[0].length === 4) {
         const year = parseInt(parts[0], 10);
         const month = parseInt(parts[1], 10) - 1;
@@ -88,11 +86,12 @@ export async function GET(req: NextRequest) {
       console.warn('[MATRIKS] Warning: Gagal membaca settings DB');
     }
 
-    // 2. AMBIL EMPLOYEES & ATTENDANCE LOGS
+    // 2. AMBIL EMPLOYEES, ATTENDANCE LOGS, & HARI LIBUR
     const employees = await prisma.employee.findMany({ orderBy: { name: 'asc' } });
     const allLogs = await prisma.attendanceLog.findMany();
+    const holidays = await prisma.holiday.findMany(); // Tambahkan Ambil Data Holiday
 
-    // 3. AMBIL PERMISSIONS (Mendukung variasi penulisan Approved)
+    // 3. AMBIL PERMISSIONS
     let permissions: any[] = [];
     try {
       permissions = await prisma.permission.findMany({
@@ -113,7 +112,6 @@ export async function GET(req: NextRequest) {
       return dStr.includes(`${yearStr}-${monthStr}`) || dStr.includes(`-${monthStr}-${yearStr}`);
     });
 
-    // Variabel Penghitung Rekapitulasi Total Matriks
     let totalHadirGlobal = 0;
     let totalTerlambatGlobal = 0;
     let totalIzinSakitGlobal = 0;
@@ -165,7 +163,7 @@ export async function GET(req: NextRequest) {
 
       const dailyStatus: Record<
         string,
-        { status: 'Hadir' | 'Terlambat' | 'Izin' | 'Sakit' | 'Alpha'; checkIn?: string }
+        { status: 'Hadir' | 'Terlambat' | 'Izin' | 'Sakit' | 'Alpha' | 'Libur'; checkIn?: string }
       > = {};
 
       let empHadirCount = 0;
@@ -176,6 +174,26 @@ export async function GET(req: NextRequest) {
       for (let day = 1; day <= daysInMonth; day++) {
         const dayKey = String(day);
         const dayLogs = logsByDay[dayKey] || [];
+        const dayStr = String(day).padStart(2, '0');
+
+        // Variasi format tanggal untuk pencocokan libur
+        const dateIsoFormat = `${yearStr}-${monthStr}-${dayStr}`;
+        const dateLocalFormat = `${dayStr}-${monthStr}-${yearStr}`;
+        const dateSingleDigit = `${day}-${month}-${year}`;
+
+        // Cek apakah tanggal ini diatur di menu Pengaturan Hari Libur
+        const isHolidaySetting = holidays.some((h) => {
+          if (!h.date) return false;
+          const cleanHDate = h.date.trim();
+          return (
+            cleanHDate === dateIsoFormat ||
+            cleanHDate === dateLocalFormat ||
+            cleanHDate === dateSingleDigit
+          );
+        });
+
+        const dateObj = new Date(year, month - 1, day);
+        const isWeekendOrHoliday = dateObj.getDay() === 0 || isHolidaySetting;
 
         let earliestLog: any = null;
         let minMinutes = 99999;
@@ -191,7 +209,15 @@ export async function GET(req: NextRequest) {
           }
         });
 
-        if (earliestLog && minMinutes !== 99999) {
+        if (permByDay[dayKey]) {
+          const permStatus = permByDay[dayKey];
+          dailyStatus[dayKey] = { status: permStatus };
+          empIzinSakitCount++;
+          totalIzinSakitGlobal++;
+        } else if (isWeekendOrHoliday) {
+          // Tanggal Merah / Libur / Sabtu-Minggu
+          dailyStatus[dayKey] = { status: 'Libur' };
+        } else if (earliestLog && minMinutes !== 99999) {
           const isLate = minMinutes > limitMinutes;
           const status = isLate ? 'Terlambat' : 'Hadir';
 
@@ -207,20 +233,11 @@ export async function GET(req: NextRequest) {
             empHadirCount++;
             totalHadirGlobal++;
           }
-        } else if (permByDay[dayKey]) {
-          const permStatus = permByDay[dayKey];
-          dailyStatus[dayKey] = { status: permStatus };
-          empIzinSakitCount++;
-          totalIzinSakitGlobal++;
         } else {
-          const dateObj = new Date(year, month - 1, day);
-          // UBAH DISINI: Jika Sabtu masuk kerja, ganti jadi (dateObj.getDay() === 0)
-          const isWeekend = dateObj.getDay() === 0 || dateObj.getDay() === 6;
-          if (!isWeekend) {
-            dailyStatus[dayKey] = { status: 'Alpha' };
-            empAlphaCount++;
-            totalAlphaGlobal++;
-          }
+          // Hari kerja biasa tanpa presensi -> Alpha
+          dailyStatus[dayKey] = { status: 'Alpha' };
+          empAlphaCount++;
+          totalAlphaGlobal++;
         }
       }
 
