@@ -4,29 +4,32 @@ export function middleware(req: NextRequest) {
   const session = req.cookies.get('user_session')?.value;
   const { pathname } = req.nextUrl;
 
-  // 1. Jika pengguna belum login dan mencoba mengakses halaman privat (dashboard, matriks, dll)
-  if (!session && pathname !== '/login') {
-    const loginUrl = new URL('/login', req.url);
-    return NextResponse.redirect(loginUrl);
+  // 1. Jika ini adalah request ke API, SELALU biarkan lewat tanpa redirect ke halaman /login
+  if (pathname.startsWith('/api')) {
+    return NextResponse.next();
   }
 
-  // 2. Jika pengguna sudah login dan mencoba membuka halaman /login
+  // 2. Halaman publik biasa (Halaman Login & Form Izin Guru)
+  const isPublicPage = pathname === '/login' || pathname.startsWith('/pengajuan-izin');
+
+  // 3. Jika pengguna belum login dan buka halaman privat -> Lempar ke /login
+  if (!session && !isPublicPage) {
+    return NextResponse.redirect(new URL('/login', req.url));
+  }
+
+  // 4. Jika pengguna sudah login dan buka /login -> Lempar ke Dashboard Utama
   if (session && pathname === '/login') {
-    const dashboardUrl = new URL('/', req.url);
-    return NextResponse.redirect(dashboardUrl);
+    return NextResponse.redirect(new URL('/', req.url));
   }
 
   return NextResponse.next();
 }
 
-// Tentukan route mana saja yang diproteksi oleh middleware
 export const config = {
   matcher: [
     /*
-     * Proteksi semua halaman KECUALI:
-     * - api routes (/api)
-     * - static files (_next/static, _next/image, favicon.ico, public files)
+     * Jalankan middleware untuk semua route KECUALI static assets bawaan Next.js
      */
-    '/((?!api|_next/static|_next/image|favicon.ico).*)',
+    '/((?!_next/static|_next/image|favicon.ico).*)',
   ],
 };
