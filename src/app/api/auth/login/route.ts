@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import bcrypt from 'bcryptjs';
+import { createSessionValue } from '@/lib/session';
 
 export async function POST(req: NextRequest) {
   try {
@@ -41,13 +42,20 @@ export async function POST(req: NextRequest) {
       user: { id: user.id, name: user.name, username: user.username, role: user.role },
     });
 
+    const sessionValue = await createSessionValue({
+      id: user.id,
+      name: user.name,
+      role: user.role,
+    });
+
     response.cookies.set({
       name: 'user_session',
-      value: JSON.stringify({ id: user.id, name: user.name, role: user.role }),
+      value: sessionValue,
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
       path: '/',
-      maxAge: 60 * 60 * 24, // Session 1 Hari
+      maxAge: 60 * 60 * 24, // Session 1 Hari — samain sama SESSION_MAX_AGE_MS di lib/session.ts
     });
 
     return response;
