@@ -11,15 +11,24 @@ const plusJakartaSans = Plus_Jakarta_Sans({
   display: 'swap',
 });
 
+// Konfigurasi Viewport & Warna Tema Browser/PWA
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
+  themeColor: '#4f46e5',
 };
 
+// Metadata Utama + PWA Manifest
 export const metadata: Metadata = {
   title: 'Al Kaaffah — Sistem Manajemen Kehadiran',
   description:
     'Sistem manajemen kehadiran dan absensi SMKS Al Kaaffah — rekap fingerprint, matriks bulanan, dan persetujuan izin dalam satu dasbor.',
+  manifest: '/manifest.json',
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'default',
+    title: 'Presensi Al Kaaffah',
+  },
   icons: {
     icon: [{ url: '/favicon.ico', type: 'image/x-icon' }],
   },
@@ -34,8 +43,17 @@ export default function RootLayout({
         {children}
         <Toaster position="bottom-right" richColors closeButton />
 
-        <script type="module" async src="https://static.rocket.new/rocket-web.js?_cfg=https%3A%2F%2Falkaaffah7530back.builtwithrocket.new&_be=https%3A%2F%2Fappanalytics.rocket.new&_v=0.1.20" />
-        <script type="module" defer src="https://static.rocket.new/rocket-shot.js?v=0.0.3" /></body>
+        <script
+          type="module"
+          async
+          src="https://static.rocket.new/rocket-web.js?_cfg=https%3A%2F%2Falkaaffah7530back.builtwithrocket.new&_be=https%3A%2F%2Fappanalytics.rocket.new&_v=0.1.20"
+        />
+        <script
+          type="module"
+          defer
+          src="https://static.rocket.new/rocket-shot.js?v=0.0.3"
+        />
+      </body>
     </html>
   );
 }
