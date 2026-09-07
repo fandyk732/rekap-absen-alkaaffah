@@ -8,12 +8,26 @@ export async function GET(req: NextRequest) {
     const year = Number(searchParams.get('year')) || new Date().getFullYear();
 
     // 1. Panggil API Matriks
+    // PENTING: ini fetch server-to-server ke route yang sama-sama butuh login.
+    // fetch() di sini TIDAK otomatis nerusin cookie dari request browser yang masuk,
+    // jadi cookie-nya harus diteruskan manual — kalau nggak, /api/matriks bakal
+    // nolak dengan 401 dan semua angka di dashboard ini diam-diam jadi 0/kosong.
     const baseUrl = req.nextUrl.origin;
     const matriksRes = await fetch(`${baseUrl}/api/matriks?month=${month}&year=${year}`, {
       cache: 'no-store',
+      headers: {
+        cookie: req.headers.get('cookie') ?? '',
+      },
     });
 
     const matriksJson = await matriksRes.json();
+
+    if (!matriksJson.success) {
+      // Jangan gagal total — biar dashboard tetep render dengan angka 0 — tapi
+      // catat di log server biar ketauan kalau ini kejadian lagi ke depannya.
+      console.warn('[DASHBOARD STATS] Gagal ambil data dari /api/matriks:', matriksJson.error);
+    }
+
     const summary = matriksJson.summary || {};
     const matrixData = matriksJson.data || [];
 
