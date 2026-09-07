@@ -18,21 +18,6 @@ export const viewport: Viewport = {
   themeColor: '#4f46e5',
 };
 
-// Metadata Utama + PWA Manifest
-export const metadata: Metadata = {
-  title: 'Al Kaaffah — Sistem Manajemen Kehadiran',
-  description:
-    'Sistem manajemen kehadiran dan absensi SMKS Al Kaaffah — rekap fingerprint, matriks bulanan, dan persetujuan izin dalam satu dasbor.',
-  manifest: '/manifest.json',
-  appleWebApp: {
-    capable: true,
-    statusBarStyle: 'default',
-    title: 'Presensi Al Kaaffah',
-  },
-  icons: {
-    icon: [{ url: '/favicon.ico', type: 'image/x-icon' }],
-  },
-};
 
 export default function RootLayout({
   children,

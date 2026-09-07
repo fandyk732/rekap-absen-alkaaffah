@@ -1,10 +1,11 @@
 {
-  "name": "Sistem Presensi SMKS Al Kaaffah",
-  "short_name": "Presensi Al Kaaffah",
-  "description": "Aplikasi Rekap & Pengajuan Izin Kehadiran Pegawai SMKS Al Kaaffah",
-  "start_url": "/",
+  "name": "Form Izin & Cuti Guru SMKS Al Kaaffah",
+  "short_name": "Izin Guru Al Kaaffah",
+  "description": "Portal Pengajuan Izin dan Cuti Mandiri Guru/Karyawan SMKS Al Kaaffah",
+  "start_url": "/pengajuan-izin",
+  "scope": "/pengajuan-izin",
   "display": "standalone",
-  "background_color": "#0f172a",
+  "background_color": "#f1f5f9",
   "theme_color": "#4f46e5",
   "orientation": "portrait",
   "icons": [
