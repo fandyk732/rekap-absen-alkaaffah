@@ -1,26 +1,37 @@
 {
-  "id": "/pengajuan-izin",
-  "name": "Form Izin & Cuti Guru SMKS Al Kaaffah",
   "short_name": "Izin Guru",
+  "name": "Form Izin & Cuti Guru SMKS Al Kaaffah",
   "description": "Portal Pengajuan Izin dan Cuti Mandiri Guru/Karyawan SMKS Al Kaaffah",
-  "start_url": "/pengajuan-izin",
-  "scope": "/pengajuan-izin",
-  "display": "standalone",
-  "background_color": "#ffffff",
-  "theme_color": "#4f46e5",
-  "orientation": "portrait",
   "icons": [
     {
       "src": "/icons/icon-192x192.png",
-      "sizes": "192x192",
       "type": "image/png",
-      "purpose": "any maskable"
+      "sizes": "192x192",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-192x192.png",
+      "type": "image/png",
+      "sizes": "192x192",
+      "purpose": "maskable"
     },
     {
       "src": "/icons/icon-512x512.png",
-      "sizes": "512x512",
       "type": "image/png",
-      "purpose": "any maskable"
+      "sizes": "512x512",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512x512.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "maskable"
     }
-  ]
+  ],
+  "start_url": "/pengajuan-izin?utm_source=pwa",
+  "background_color": "#ffffff",
+  "theme_color": "#4f46e5",
+  "default_locale": "id",
+  "scope": "/",
+  "display": "standalone"
 }

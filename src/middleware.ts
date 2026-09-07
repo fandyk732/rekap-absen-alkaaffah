@@ -2,16 +2,15 @@ import { NextRequest, NextResponse } from 'next/server';
 import { verifySessionValue } from '@/lib/session';
 
 // Halaman yang boleh diakses TANPA login.
-// - /login: ya jelas
-// - /pengajuan-izin: form publik buat guru/pegawai ngajuin izin (tanpa akun admin)
 const PUBLIC_PAGES = ['/login', '/pengajuan-izin'];
 
+// File & Asset PWA yang WAJIB publik agar Chrome Android bisa mengunduh PWA
+const PUBLIC_PWA_ASSETS = [
+  '/manifest-izin.json',
+  '/sw.js',
+];
+
 // Endpoint API yang boleh diakses TANPA login, plus method-nya masing-masing.
-// SEMUA endpoint lain di bawah /api WAJIB session valid.
-//
-// Kalau nanti nambah fitur publik baru, tambahin di sini SATU-SATU dan sengaja —
-// jangan pernah bikin blanket bypass buat seluruh /api lagi (itu yang kemarin
-// bikin semua endpoint kebuka).
 const PUBLIC_API: Array<{ path: string; methods: string[] }> = [
   { path: '/api/auth/login', methods: ['POST'] },
   { path: '/api/auth/seed', methods: ['GET', 'POST'] }, // diproteksi SEED_SECRET di dalam route-nya sendiri
@@ -25,7 +24,11 @@ function isPublicApi(pathname: string, method: string): boolean {
 }
 
 function isPublicPage(pathname: string): boolean {
-  return PUBLIC_PAGES.some((p) => pathname === p || pathname.startsWith(`${p}/`));
+  return (
+    PUBLIC_PAGES.some((p) => pathname === p || pathname.startsWith(`${p}/`)) ||
+    PUBLIC_PWA_ASSETS.includes(pathname) ||
+    pathname.startsWith('/icons/') // Mengizinkan folder ikon PWA (/icons/icon-192x192.png, dll)
+  );
 }
 
 export async function middleware(req: NextRequest) {
@@ -49,7 +52,7 @@ export async function middleware(req: NextRequest) {
     return NextResponse.next();
   }
 
-  // ---- Request Halaman ----
+  // ---- Request Halaman & Public Static Assets (PWA) ----
   if (!session && !isPublicPage(pathname)) {
     return NextResponse.redirect(new URL('/login', req.url));
   }

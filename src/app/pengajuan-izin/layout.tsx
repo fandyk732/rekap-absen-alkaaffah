@@ -20,5 +20,24 @@ export default function PengajuanIzinLayout({
 }: {
   children: React.ReactNode;
 }) {
-  return <>{children}</>;
+  return (
+    <>
+      {children}
+      {/* Script Paksa Registrasi Service Worker di Android Chrome */}
+      <script
+        dangerouslySetInnerHTML={{
+          __html: `
+            if ('serviceWorker' in navigator) {
+              window.addEventListener('load', function() {
+                navigator.serviceWorker.register('/sw.js').then(
+                  function(reg) { console.log('PWA SW Active:', reg.scope); },
+                  function(err) { console.log('PWA SW Failed:', err); }
+                );
+              });
+            }
+          `,
+        }}
+      />
+    </>
+  );
 }
