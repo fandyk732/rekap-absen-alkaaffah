@@ -20,6 +20,15 @@ export default function FormIzinMandiriPage() {
   const [submitting, setSubmitting] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
 
+  useEffect(() => {
+  if ('serviceWorker' in navigator && process.env.NODE_ENV === 'production') {
+    navigator.serviceWorker
+      .register('/sw.js')
+      .then((reg) => console.log('SW registered:', reg))
+      .catch((err) => console.error('SW registration failed:', err));
+  }
+  }, []);
+  
   // Ambil daftar pegawai untuk fitur pencarian nama
   useEffect(() => {
     const fetchEmployees = async () => {
