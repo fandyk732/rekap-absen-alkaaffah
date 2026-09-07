@@ -4,20 +4,29 @@ export function middleware(req: NextRequest) {
   const session = req.cookies.get('user_session')?.value;
   const { pathname } = req.nextUrl;
 
-  // 1. Jika ini adalah request ke API, SELALU biarkan lewat tanpa redirect ke halaman /login
-  if (pathname.startsWith('/api')) {
-    return NextResponse.next();
-  }
+  // 1. DAFTAR API PUBLIK (Hanya API ini yang boleh diakses tanpa login)
+  const isPublicApi =
+    pathname.startsWith('/api/auth') ||        // API Login & Logout
+    pathname.startsWith('/api/izin-absensi') || // API Kirim Form Izin Guru
+    pathname.startsWith('/api/employees');      // API Verifikasi PIN Guru
 
-  // 2. Halaman publik biasa (Halaman Login & Form Izin Guru)
+  // 2. DAFTAR HALAMAN PUBLIK
   const isPublicPage = pathname === '/login' || pathname.startsWith('/pengajuan-izin');
 
-  // 3. Jika pengguna belum login dan buka halaman privat -> Lempar ke /login
-  if (!session && !isPublicPage) {
+  // Jika mencoba akses API Privat tanpa session -> Tolak dengan JSON Unauthorized
+  if (pathname.startsWith('/api') && !isPublicApi && !session) {
+    return NextResponse.json(
+      { success: false, error: 'Akses ditolak. Silakan login terlebih dahulu.' },
+      { status: 401 }
+    );
+  }
+
+  // Jika belum login dan coba akses Halaman Privat -> Redirect ke /login
+  if (!session && !isPublicPage && !pathname.startsWith('/api')) {
     return NextResponse.redirect(new URL('/login', req.url));
   }
 
-  // 4. Jika pengguna sudah login dan buka /login -> Lempar ke Dashboard Utama
+  // Jika sudah login dan buka /login -> Redirect ke Dashboard Utama
   if (session && pathname === '/login') {
     return NextResponse.redirect(new URL('/', req.url));
   }
@@ -27,9 +36,6 @@ export function middleware(req: NextRequest) {
 
 export const config = {
   matcher: [
-    /*
-     * Jalankan middleware untuk semua route KECUALI static assets bawaan Next.js
-     */
     '/((?!_next/static|_next/image|favicon.ico).*)',
   ],
 };
