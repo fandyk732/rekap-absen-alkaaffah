@@ -43,4 +43,9 @@ turbo/
 .env.production.local
 .env*.local
 
-*.db
+# Prisma & SQLite / Local DB
+prisma/*.db
+prisma/*.db-journal
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
