@@ -12,7 +12,8 @@ import {
   TrendingUp,
   FileCheck,
   RefreshCw,
-  XCircle,
+  Award,
+  Zap,
 } from 'lucide-react';
 import Link from 'next/link';
 import ExportDashboardButtons from '@/components/ExportDashboardButtons';
@@ -32,11 +33,19 @@ interface DashboardStats {
   pendingPermissionsCount: number;
 }
 
+interface EmployeeRank {
+  id: string | number;
+  name: string;
+  totalHadir?: number;
+  totalTelat?: number;
+}
+
 export default function DashboardPage() {
   const [selectedMonth, setSelectedMonth] = useState<number>(new Date().getMonth() + 1);
   const [selectedYear, setSelectedYear] = useState<number>(2026);
   const [loading, setLoading] = useState(true);
-
+  const [diligent, setDiligent] = useState<EmployeeRank[]>([]);
+  const [punctual, setPunctual] = useState<EmployeeRank[]>([]);
   const [data, setData] = useState<{
     stats: DashboardStats;
     topLateEmployees: any[];
@@ -68,10 +77,15 @@ export default function DashboardPage() {
   const fetchDashboardStats = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/dashboard/stats?month=${selectedMonth}&year=${selectedYear}`);
+      const res = await fetch(`/api/dashboard/stats?month=${selectedMonth}&year=${selectedYear}`, {
+        cache: 'no-store',
+      });
       const json = await res.json();
       if (json.success) {
         setData(json);
+        // Set ranking langsung dari response stats
+        setDiligent(json.topDiligent || []);
+        setPunctual(json.topPunctual || []);
       }
     } catch (err) {
       console.error('Gagal mengambil ringkasan dashboard:', err);
@@ -99,15 +113,13 @@ export default function DashboardPage() {
           </div>
 
           <div className="flex items-center gap-2">
-            
-            {/* TOMBOL EXPORT KITA PASANG DI SINI */}
-          <ExportDashboardButtons
-            monthName={monthNames[selectedMonth - 1]}
-            year={selectedYear}
-            stats={stats}
-            topLate={data.topLateEmployees}
-            topPermission={data.topPermissionEmployees}
-          />
+            <ExportDashboardButtons
+              monthName={monthNames[selectedMonth - 1]}
+              year={selectedYear}
+              stats={stats}
+              topLate={data.topLateEmployees}
+              topPermission={data.topPermissionEmployees}
+            />
             
             <button
               onClick={fetchDashboardStats}
@@ -144,7 +156,6 @@ export default function DashboardPage() {
 
         {/* Dynamic Metric Cards */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {/* Card Total Pegawai */}
           <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between">
             <div>
               <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Total Pegawai</p>
@@ -156,7 +167,6 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* Card Total Hadir Tepat Waktu */}
           <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between">
             <div>
               <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Hadir Tepat Waktu</p>
@@ -170,7 +180,6 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* Card Frekuensi Terlambat */}
           <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between">
             <div>
               <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Frekuensi Terlambat</p>
@@ -184,7 +193,6 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* Card Izin / Sakit */}
           <Link
             href="/izin-absensi"
             className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between hover:border-purple-300 transition-colors group cursor-pointer"
@@ -208,7 +216,88 @@ export default function DashboardPage() {
           </Link>
         </div>
 
-        {/* Visual Progress Bar Chart (Opsi B - Capacity Based) */}
+        {/* WIDGET RANKING DIREKTUR / KEPALA SEKOLAH */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {/* Top 5 Guru Paling Rajin */}
+          <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-2.5 bg-amber-100 text-amber-600 rounded-xl">
+                <Award className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="font-bold text-slate-800 text-base">Top 5 Guru Paling Rajin</h3>
+                <p className="text-xs text-slate-500">Berdasarkan akumulasi kehadiran bulan ini</p>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              {loading ? (
+                Array(3).fill(0).map((_, i) => (
+                  <div key={i} className="h-12 bg-slate-100 animate-pulse rounded-xl" />
+                ))
+              ) : diligent.length > 0 ? (
+                diligent.map((emp, idx) => (
+                  <div key={emp.id || idx} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100">
+                    <div className="flex items-center gap-3">
+                      <span className="w-6 h-6 flex items-center justify-center rounded-full bg-amber-500 text-white font-bold text-xs">
+                        {idx + 1}
+                      </span>
+                      <span className="font-medium text-sm text-slate-700">{emp.name}</span>
+                    </div>
+                    <span className="text-xs font-semibold px-2.5 py-1 bg-emerald-100 text-emerald-700 rounded-lg">
+                      {emp.totalHadir ?? 0} Hari
+                    </span>
+                  </div>
+                ))
+              ) : (
+                <div className="py-6 text-center text-slate-400 text-xs">
+                  Apresiasi tingkat kehadiran tinggi aktif bulan ini.
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Top 5 Guru Paling Disiplin Waktu */}
+          <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-2.5 bg-indigo-100 text-indigo-600 rounded-xl">
+                <Zap className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="font-bold text-slate-800 text-base">Top 5 Paling Disiplin Waktu</h3>
+                <p className="text-xs text-slate-500">Guru dengan catatan keterlambatan terendah</p>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              {loading ? (
+                Array(3).fill(0).map((_, i) => (
+                  <div key={i} className="h-12 bg-slate-100 animate-pulse rounded-xl" />
+                ))
+              ) : punctual.length > 0 ? (
+                punctual.map((emp, idx) => (
+                  <div key={emp.id || idx} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100">
+                    <div className="flex items-center gap-3">
+                      <span className="w-6 h-6 flex items-center justify-center rounded-full bg-indigo-600 text-white font-bold text-xs">
+                        {idx + 1}
+                      </span>
+                      <span className="font-medium text-sm text-slate-700">{emp.name}</span>
+                    </div>
+                    <span className="text-xs font-semibold px-2.5 py-1 bg-indigo-50 text-indigo-700 rounded-lg">
+                      {emp.totalTelat === 0 ? 'Tidak Pernah Telat' : `${emp.totalTelat}x Telat`}
+                    </span>
+                  </div>
+                ))
+              ) : (
+                <div className="py-6 text-center text-slate-400 text-xs">
+                  Pencatatan kedisiplinan jam masuk kerja.
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Visual Progress Bar Chart */}
         <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-3">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
@@ -244,7 +333,6 @@ export default function DashboardPage() {
 
         {/* Top Analysis Cards */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Top 5 Sering Terlambat */}
           <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-4">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <h3 className="font-bold text-slate-800 text-base flex items-center gap-2">
@@ -281,7 +369,6 @@ export default function DashboardPage() {
             )}
           </div>
 
-          {/* Top 5 Sering Izin/Sakit & Alasan */}
           <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-4">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <h3 className="font-bold text-slate-800 text-base flex items-center gap-2">

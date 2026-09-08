@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
@@ -8,10 +11,6 @@ export async function GET(req: NextRequest) {
     const year = Number(searchParams.get('year')) || new Date().getFullYear();
 
     // 1. Panggil API Matriks
-    // PENTING: ini fetch server-to-server ke route yang sama-sama butuh login.
-    // fetch() di sini TIDAK otomatis nerusin cookie dari request browser yang masuk,
-    // jadi cookie-nya harus diteruskan manual — kalau nggak, /api/matriks bakal
-    // nolak dengan 401 dan semua angka di dashboard ini diam-diam jadi 0/kosong.
     const baseUrl = req.nextUrl.origin;
     const matriksRes = await fetch(`${baseUrl}/api/matriks?month=${month}&year=${year}`, {
       cache: 'no-store',
@@ -23,13 +22,11 @@ export async function GET(req: NextRequest) {
     const matriksJson = await matriksRes.json();
 
     if (!matriksJson.success) {
-      // Jangan gagal total — biar dashboard tetep render dengan angka 0 — tapi
-      // catat di log server biar ketauan kalau ini kejadian lagi ke depannya.
       console.warn('[DASHBOARD STATS] Gagal ambil data dari /api/matriks:', matriksJson.error);
     }
 
     const summary = matriksJson.summary || {};
-    const matrixData = matriksJson.data || [];
+    const matrixData: any[] = matriksJson.data || [];
 
     const totalHadir = summary.totalHadir || 0;
     const totalTerlambat = summary.totalTerlambat || 0;
@@ -46,19 +43,45 @@ export async function GET(req: NextRequest) {
     const izinSakitPct = Math.round((totalIzinSakit / divider) * 100);
     const alphaPct = Math.round((totalAlpha / divider) * 100);
 
-    // Rekap Top Terlambat
-    const lateMap: Record<string, { name: string; pin: string; count: number }> = {};
-    matrixData.forEach((emp: any) => {
-      if (emp.summary?.terlambat > 0) {
-        lateMap[emp.pin] = { name: emp.name, pin: emp.pin, count: emp.summary.terlambat };
-      }
-    });
+    // ==========================================
+    // 2. OLAH TOP EMPLOYEES LANGSUNG DARI MATRIKS
+    // ==========================================
+    
+    // A. Top 5 Guru Paling Rajin (Total Hadir Terbanyak dari Matriks)
+    const topDiligent = [...matrixData]
+      .map((emp) => ({
+        id: emp.id || emp.pin,
+        name: emp.name,
+        totalHadir: emp.summary?.hadir || 0,
+        totalTelat: emp.summary?.terlambat || 0,
+      }))
+      .sort((a, b) => b.totalHadir - a.totalHadir || a.totalTelat - b.totalTelat)
+      .slice(0, 5);
 
-    const topLateEmployees = Object.values(lateMap)
+    // B. Top 5 Paling Disiplin Waktu (Hadir min 1x & Keterlambatan Terendah dari Matriks)
+    const topPunctual = [...matrixData]
+      .filter((emp) => (emp.summary?.hadir || 0) > 0)
+      .map((emp) => ({
+        id: emp.id || emp.pin,
+        name: emp.name,
+        totalHadir: emp.summary?.hadir || 0,
+        totalTelat: emp.summary?.terlambat || 0,
+      }))
+      .sort((a, b) => a.totalTelat - b.totalTelat || b.totalHadir - a.totalHadir)
+      .slice(0, 5);
+
+    // C. Rekap Top Terlambat (Widget Bawah)
+    const topLateEmployees = [...matrixData]
+      .filter((emp) => (emp.summary?.terlambat || 0) > 0)
+      .map((emp) => ({
+        name: emp.name,
+        pin: emp.pin,
+        count: emp.summary.terlambat,
+      }))
       .sort((a, b) => b.count - a.count)
       .slice(0, 5);
 
-    // Rekap Top Izin / Sakit Beserta Alasan (Reasons)
+    // 3. Rekap Top Izin / Sakit
     let permissions: any[] = [];
     try {
       permissions = await prisma.permission.findMany({
@@ -110,6 +133,8 @@ export async function GET(req: NextRequest) {
         alphaPct,
         pendingPermissionsCount,
       },
+      topDiligent,
+      topPunctual,
       topLateEmployees,
       topPermissionEmployees,
     });

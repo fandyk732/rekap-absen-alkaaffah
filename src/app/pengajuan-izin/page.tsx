@@ -251,6 +251,7 @@ export default function FormIzinMandiriPage() {
                   onChange={(e) => setType(e.target.value)}
                   className="w-full text-sm bg-slate-50 border border-slate-300 rounded-xl p-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 >
+                  <option value="Terlambat">Terlambat Masuk Kerja</option>
                   <option value="Izin">Izin</option>
                   <option value="Sakit">Sakit</option>
                   <option value="Cuti">Cuti</option>
@@ -264,7 +265,13 @@ export default function FormIzinMandiriPage() {
                   <input
                     type="date"
                     value={startDate}
-                    onChange={(e) => setStartDate(e.target.value)}
+                    onChange={(e) => {
+                      setStartDate(e.target.value);
+                      // Jika tipe 'Terlambat', otomatis samakan tanggal selesainya dengan tanggal mulai
+                      if (type === 'Terlambat') {
+                        setEndDate(e.target.value);
+                      }
+                    }}
                     required
                     className="w-full text-sm bg-slate-50 border border-slate-300 rounded-xl p-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                   />
