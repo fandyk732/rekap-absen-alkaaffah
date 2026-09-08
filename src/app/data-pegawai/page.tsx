@@ -2,7 +2,18 @@
 
 import React, { useState, useEffect } from 'react';
 import AppLayout from '@/components/AppLayout';
-import { Plus, Search, Edit2, Trash2, UserCheck, UserX, Phone, IdCard } from 'lucide-react';
+import { Plus, Search, Edit2, Trash2, UserCheck, UserX, Phone, Calendar, Clock, RefreshCw } from 'lucide-react';
+import { toast } from 'sonner';
+
+const DAYS = [
+  { id: 1, label: 'Senin' },
+  { id: 2, label: 'Selasa' },
+  { id: 3, label: 'Rabu' },
+  { id: 4, label: 'Kamis' },
+  { id: 5, label: 'Jumat' },
+  { id: 6, label: 'Sabtu' },
+  { id: 0, label: 'Minggu' },
+];
 
 export default function DataPegawaiPage() {
   const [employees, setEmployees] = useState<any[]>([]);
@@ -10,6 +21,12 @@ export default function DataPegawaiPage() {
   const [search, setSearch] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+
+  // State Modal Jadwal Mengajar Khusus
+  const [showScheduleModal, setShowScheduleModal] = useState(false);
+  const [selectedEmp, setSelectedEmp] = useState<any>(null);
+  const [schedules, setSchedules] = useState<any[]>([]);
+  const [savingSchedule, setSavingSchedule] = useState(false);
 
   const [formData, setFormData] = useState({
     pin: '',
@@ -58,6 +75,59 @@ export default function DataPegawaiPage() {
     setShowModal(true);
   };
 
+  // Open Modal Jadwal Mengajar Khusus
+  const handleOpenSchedule = async (emp: any) => {
+    setSelectedEmp(emp);
+    setShowScheduleModal(true);
+
+    try {
+      const res = await fetch(`/api/schedules?employeeId=${emp.id}`);
+      const json = await res.json();
+
+      const initialScheds = DAYS.map((day) => {
+        const found = json.data?.find((s: any) => s.dayOfWeek === day.id);
+        return {
+          dayOfWeek: day.id,
+          dayName: day.label,
+          isWorking: found ? found.isWorking : day.id !== 0,
+          startTime: found?.startTime || '07:15',
+          endTime: found?.endTime || '14:00', // Default jam pulang 14:00
+        };
+      });
+
+      setSchedules(initialScheds);
+    } catch (err) {
+      toast.error('Gagal mengambil jadwal pegawai.');
+    }
+  };
+
+  const handleSaveSchedule = async () => {
+    if (!selectedEmp) return;
+    setSavingSchedule(true);
+    try {
+      const res = await fetch('/api/schedules', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          employeeId: selectedEmp.id,
+          schedules,
+        }),
+      });
+
+      const json = await res.json();
+      if (json.success) {
+        toast.success(`Jadwal mengajar ${selectedEmp.name} berhasil disimpan!`);
+        setShowScheduleModal(false);
+      } else {
+        toast.error(json.error || 'Gagal menyimpan jadwal.');
+      }
+    } catch (e) {
+      toast.error('Gagal terhubung ke server.');
+    } finally {
+      setSavingSchedule(false);
+    }
+  };
+
   const handleDelete = async (id: string, name: string) => {
     if (!confirm(`Apakah Anda yakin ingin menghapus data ${name}?`)) return;
     try {
@@ -104,7 +174,7 @@ export default function DataPegawaiPage() {
           <div>
             <h1 className="text-2xl font-bold text-slate-900">Data Pegawai & Guru</h1>
             <p className="text-slate-500 text-sm">
-              Kelola informasi profil, PIN mesin fingerprint, dan status kepegawaian.
+              Kelola informasi profil, PIN mesin fingerprint, dan atur jadwal mengajar khusus.
             </p>
           </div>
           <button
@@ -137,7 +207,7 @@ export default function DataPegawaiPage() {
                 <th className="py-3.5 px-4">Jabatan / Role</th>
                 <th className="py-3.5 px-4">L/P</th>
                 <th className="py-3.5 px-4">Status</th>
-                <th className="py-3.5 px-4 text-center">Aksi</th>
+                <th className="py-3.5 px-4 text-center">Aksi & Jadwal</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -195,6 +265,14 @@ export default function DataPegawaiPage() {
                     <td className="py-3.5 px-4 text-center">
                       <div className="flex items-center justify-center gap-1">
                         <button
+                          onClick={() => handleOpenSchedule(emp)}
+                          className="flex items-center gap-1 px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-xs font-medium transition"
+                          title="Atur Jam / Hari Mengajar"
+                        >
+                          <Calendar className="w-3.5 h-3.5" />
+                          Jadwal
+                        </button>
+                        <button
                           onClick={() => handleOpenEdit(emp)}
                           className="p-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition"
                           title="Edit Pegawai"
@@ -217,7 +295,110 @@ export default function DataPegawaiPage() {
           </table>
         </div>
 
-        {/* Modal Form Add/Edit */}
+        {/* MODAL SETTING JADWAL MENGAJAR KHUSUS */}
+          {showScheduleModal && selectedEmp && (
+            <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+              <div className="bg-white rounded-2xl p-6 max-w-lg w-full space-y-5 shadow-2xl animate-in fade-in zoom-in duration-150">
+                <div className="flex items-center justify-between border-b pb-3">
+                  <div>
+                    <h2 className="text-lg font-bold text-slate-900">Jadwal Jam Mengajar / Kerja</h2>
+                    <p className="text-xs text-slate-500">{selectedEmp.name} (PIN: {selectedEmp.pin})</p>
+                  </div>
+                  <button
+                    onClick={() => setShowScheduleModal(false)}
+                    className="text-slate-400 hover:text-slate-600 font-bold"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                <div className="space-y-3 max-h-96 overflow-y-auto pr-1">
+                  {schedules.map((s, idx) => (
+                    <div key={s.dayOfWeek} className="flex items-center justify-between bg-slate-50 p-3 rounded-xl border border-slate-100">
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="checkbox"
+                          checked={s.isWorking}
+                          onChange={(e) => {
+                            const updated = [...schedules];
+                            updated[idx].isWorking = e.target.checked;
+                            setSchedules(updated);
+                          }}
+                          className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                        />
+                        <span className={`text-sm font-semibold ${s.isWorking ? 'text-slate-800' : 'text-slate-400 line-through'}`}>
+                          {s.dayName}
+                        </span>
+                      </div>
+
+                      {s.isWorking ? (
+                        <div className="flex items-center gap-2">
+                          {/* Jam Masuk */}
+                          <div className="flex items-center gap-1 bg-white border border-slate-200 px-2 py-1 rounded-lg">
+                            <Clock className="w-3 h-3 text-emerald-600" />
+                            <span className="text-[10px] text-slate-400">Masuk:</span>
+                            <input
+                              type="text"
+                              value={s.startTime}
+                              onChange={(e) => {
+                                const updated = [...schedules];
+                                updated[idx].startTime = e.target.value;
+                                setSchedules(updated);
+                              }}
+                              placeholder="07:15"
+                              className="w-12 text-xs font-mono font-bold text-center border-b border-slate-300 focus:outline-none focus:border-indigo-600"
+                            />
+                          </div>
+
+                          {/* Jam Pulang */}
+                          <div className="flex items-center gap-1 bg-white border border-slate-200 px-2 py-1 rounded-lg">
+                            <Clock className="w-3 h-3 text-rose-600" />
+                            <span className="text-[10px] text-slate-400">Pulang:</span>
+                            <input
+                              type="text"
+                              value={s.endTime}
+                              onChange={(e) => {
+                                const updated = [...schedules];
+                                updated[idx].endTime = e.target.value;
+                                setSchedules(updated);
+                              }}
+                              placeholder="14:00"
+                              className="w-12 text-xs font-mono font-bold text-center border-b border-slate-300 focus:outline-none focus:border-indigo-600"
+                            />
+                          </div>
+                        </div>
+                      ) : (
+                        <span className="text-xs text-rose-500 font-medium px-2 py-1 bg-rose-50 rounded-md">
+                          Libur Mengajar
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                <div className="flex justify-end gap-2 pt-3 border-t">
+                  <button
+                    type="button"
+                    onClick={() => setShowScheduleModal(false)}
+                    className="px-4 py-2 border border-slate-200 rounded-xl text-xs font-medium hover:bg-slate-50 transition"
+                  >
+                    Batal
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSaveSchedule}
+                    disabled={savingSchedule}
+                    className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-medium transition shadow-sm disabled:opacity-50"
+                  >
+                    {savingSchedule && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
+                    Simpan Jadwal
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+        {/* Modal Form Add/Edit Pegawai (Tetap Ada) */}
         {showModal && (
           <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-2xl p-6 max-w-lg w-full space-y-5 shadow-2xl animate-in fade-in zoom-in duration-150">

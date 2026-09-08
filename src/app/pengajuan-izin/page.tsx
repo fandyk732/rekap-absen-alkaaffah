@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { FileText, Send, CheckCircle2, Search, Calendar, UserCheck } from 'lucide-react';
+import { FileText, Send, CheckCircle2, Search, Calendar, UserCheck, Clock, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
 
 export default function FormIzinMandiriPage() {
@@ -17,18 +17,19 @@ export default function FormIzinMandiriPage() {
   const [reason, setReason] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
+  const [earlyLeaveTime, setEarlyLeaveTime] = useState('12:00'); // State jam pulang awal
   const [submitting, setSubmitting] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
 
   useEffect(() => {
-  if ('serviceWorker' in navigator && process.env.NODE_ENV === 'production') {
-    navigator.serviceWorker
-      .register('/sw.js')
-      .then((reg) => console.log('SW registered:', reg))
-      .catch((err) => console.error('SW registration failed:', err));
-  }
+    if ('serviceWorker' in navigator && process.env.NODE_ENV === 'production') {
+      navigator.serviceWorker
+        .register('/sw.js')
+        .then((reg) => console.log('SW registered:', reg))
+        .catch((err) => console.error('SW registration failed:', err));
+    }
   }, []);
-  
+
   // Ambil daftar pegawai untuk fitur pencarian nama
   useEffect(() => {
     const fetchEmployees = async () => {
@@ -85,21 +86,25 @@ export default function FormIzinMandiriPage() {
     setSubmitting(true);
     try {
       const formatToDDMMYYYY = (dateStr: string) => {
+        if (!dateStr) return '';
         const [y, m, d] = dateStr.split('-');
         return `${d}-${m}-${y}`;
+      };
+
+      const payload = {
+        pin: employee.pin,
+        employeeName: employee.name,
+        type,
+        reason,
+        startDate: formatToDDMMYYYY(startDate),
+        endDate: formatToDDMMYYYY(type === 'Pulang Awal' || type === 'Terlambat' ? startDate : endDate),
+        earlyLeaveTime: type === 'Pulang Awal' ? earlyLeaveTime : null,
       };
 
       const res = await fetch('/api/permissions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          pin: employee.pin,
-          employeeName: employee.name,
-          type,
-          reason,
-          startDate: formatToDDMMYYYY(startDate),
-          endDate: formatToDDMMYYYY(endDate),
-        }),
+        body: JSON.stringify(payload),
       });
 
       const json = await res.json();
@@ -142,6 +147,8 @@ export default function FormIzinMandiriPage() {
                   setReason('');
                   setStartDate('');
                   setEndDate('');
+                  setType('Izin');
+                  setEarlyLeaveTime('12:00');
                 }}
                 className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2.5 rounded-xl text-sm transition-colors"
               >
@@ -248,27 +255,55 @@ export default function FormIzinMandiriPage() {
                 <label className="block text-xs font-semibold text-slate-700 mb-1">Jenis Ketidakhadiran</label>
                 <select
                   value={type}
-                  onChange={(e) => setType(e.target.value)}
+                  onChange={(e) => {
+                    const selected = e.target.value;
+                    setType(selected);
+                    // Opsi tanggal otomatis ter-update jika jenisnya harian tunggal
+                    if ((selected === 'Terlambat' || selected === 'Pulang Awal') && startDate) {
+                      setEndDate(startDate);
+                    }
+                  }}
                   className="w-full text-sm bg-slate-50 border border-slate-300 rounded-xl p-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 >
+                  <option value="Izin">Izin (Full Day)</option>
+                  <option value="Pulang Awal">Izin Pulang Awal</option>
                   <option value="Terlambat">Terlambat Masuk Kerja</option>
-                  <option value="Izin">Izin</option>
                   <option value="Sakit">Sakit</option>
                   <option value="Cuti">Cuti</option>
                   <option value="Dinas Luar">Dinas Luar</option>
                 </select>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              {/* Di bagian Input Time Form Mandiri */}
+                {type === 'Pulang Awal' && (
+                  <div className="p-3 bg-orange-50 border border-orange-200 rounded-xl space-y-2">
+                    <div className="flex items-center gap-1.5 text-orange-800 text-xs font-semibold">
+                      <Clock className="w-4 h-4 text-orange-600 shrink-0" />
+                      <span>Jam Rencana Pulang (Format 24 Jam)</span>
+                    </div>
+                    <input
+                      type="time"
+                      value={earlyLeaveTime}
+                      onChange={(e) => setEarlyLeaveTime(e.target.value)}
+                      required
+                      step="60" // Memaksa langkah per menit
+                      className="w-full text-sm font-mono font-bold bg-white border border-orange-300 rounded-lg p-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                    />
+                  </div>
+                )}
+
+              {/* Input Tanggal */}
+              <div className={type === 'Pulang Awal' || type === 'Terlambat' ? 'block' : 'grid grid-cols-2 gap-3'}>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Mulai Tanggal</label>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    {type === 'Pulang Awal' || type === 'Terlambat' ? 'Tanggal' : 'Mulai Tanggal'}
+                  </label>
                   <input
                     type="date"
                     value={startDate}
                     onChange={(e) => {
                       setStartDate(e.target.value);
-                      // Jika tipe 'Terlambat', otomatis samakan tanggal selesainya dengan tanggal mulai
-                      if (type === 'Terlambat') {
+                      if (type === 'Terlambat' || type === 'Pulang Awal') {
                         setEndDate(e.target.value);
                       }
                     }}
@@ -276,16 +311,19 @@ export default function FormIzinMandiriPage() {
                     className="w-full text-sm bg-slate-50 border border-slate-300 rounded-xl p-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                   />
                 </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Sampai Tanggal</label>
-                  <input
-                    type="date"
-                    value={endDate}
-                    onChange={(e) => setEndDate(e.target.value)}
-                    required
-                    className="w-full text-sm bg-slate-50 border border-slate-300 rounded-xl p-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                  />
-                </div>
+
+                {type !== 'Pulang Awal' && type !== 'Terlambat' && (
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">Sampai Tanggal</label>
+                    <input
+                      type="date"
+                      value={endDate}
+                      onChange={(e) => setEndDate(e.target.value)}
+                      required
+                      className="w-full text-sm bg-slate-50 border border-slate-300 rounded-xl p-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                  </div>
+                )}
               </div>
 
               <div>
@@ -294,7 +332,11 @@ export default function FormIzinMandiriPage() {
                   rows={3}
                   value={reason}
                   onChange={(e) => setReason(e.target.value)}
-                  placeholder="Contoh: Menghadiri acara keluarga / Sakit demam..."
+                  placeholder={
+                    type === 'Pulang Awal'
+                      ? 'Contoh: Mengantar anak berobat / Ada keperluan keluarga mendadak...'
+                      : 'Contoh: Menghadiri acara keluarga / Sakit demam...'
+                  }
                   required
                   className="w-full text-sm bg-slate-50 border border-slate-300 rounded-xl p-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 />

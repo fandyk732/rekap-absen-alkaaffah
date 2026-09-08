@@ -21,37 +21,41 @@ model Employee {
 
   attendanceLogs AttendanceLog[]
   permissions    Permission[]
+  schedules      WorkSchedule[]
 }
 
 model AttendanceLog {
-  id        String   @id @default(uuid())
-  pin       String
-  name      String
-  date      String   // Format Standar: DD-MM-YYYY atau YYYY-MM-DD
-  checkIn   String
-  checkOut  String
-  status    String
-  flagColor String
-  createdAt DateTime @default(now())
+  id               String   @id @default(uuid())
+  pin              String
+  name             String
+  date             String   // Format Standar: DD-MM-YYYY atau YYYY-MM-DD
+  checkIn          String?  // <-- DIUBAH JADI OPTIONAL (agar tidak error jika belum tap)
+  checkOut         String?  // <-- DIUBAH JADI OPTIONAL (agar tidak error jika belum tap)
+  status           String
+  isEarlyLeave     Boolean  @default(false)
+  earlyLeaveReason String?
+  flagColor        String?  @default("green") // <-- DIUBAH JADI OPTIONAL
+  createdAt        DateTime @default(now())
 
-  employee  Employee? @relation(fields: [pin], references: [pin], onDelete: Cascade)
+  employee Employee? @relation(fields: [pin], references: [pin], onDelete: Cascade)
 
   @@index([pin])
   @@index([date])
 }
 
 model Permission {
-  id           String   @id @default(uuid())
-  pin          String
-  employeeName String
-  type         String   // Izin | Sakit | Cuti | Dinas Luar
-  startDate    String   
-  endDate      String   
-  reason       String
-  status       String   @default("Pending") // Pending | Approved | Rejected
-  createdAt    DateTime @default(now())
+  id             String   @id @default(uuid())
+  pin            String
+  employeeName   String
+  type           String   // Izin | Sakit | Cuti | Dinas Luar | Pulang Awal | Terlambat
+  startDate      String   
+  endDate        String   
+  reason         String
+  earlyLeaveTime String?  // Jam rencana pulang (e.g., "12:00")
+  status         String   @default("Pending") // Pending | Approved | Rejected
+  createdAt      DateTime @default(now())
 
-  employee     Employee? @relation(fields: [pin], references: [pin], onDelete: Cascade)
+  employee Employee? @relation(fields: [pin], references: [pin], onDelete: Cascade)
 
   @@index([pin])
 }
@@ -59,7 +63,8 @@ model Permission {
 model Setting {
   id            String   @id @default("default")
   workStartTime String   @default("07:15") 
-  emailNotif    Boolean  @default(true)
+  workEndTime   String   @default("14:00") // Batas Jam Pulang Standard
+  emailNotif     Boolean  @default(true)
   updatedAt     DateTime @updatedAt
 }
 
@@ -80,4 +85,20 @@ model User {
   role      String   @default("Admin")
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+model WorkSchedule {
+  id         String   @id @default(uuid())
+  employeeId String
+  dayOfWeek  Int      // 0: Minggu, 1: Senin, 2: Selasa, 3: Rabu, 4: Kamis, 5: Jumat, 6: Sabtu
+  isWorking  Boolean  @default(true) // true = Wajib Masuk, false = Libur Mengajar
+  startTime  String?  @default("07:15") // Jam Batas Masuk Khusus (misal: "08:00")
+  endTime    String?  @default("14:00")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@unique([employeeId, dayOfWeek])
+  @@index([employeeId])
 }

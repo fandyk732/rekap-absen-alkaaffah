@@ -2,22 +2,84 @@
 
 import React, { useState, useEffect } from 'react';
 import AppLayout from '@/components/AppLayout';
-import { Download, Plus, Search, Check, X, RefreshCw } from 'lucide-react';
+import { Download, Plus, Search, Check, X, RefreshCw, Clock } from 'lucide-react';
 import { toast } from 'sonner';
 import * as XLSX from 'xlsx';
 
 export default function IzinAbsensiPage() {
+  // State Filter Bulan & Tahun
+  const [selectedMonth, setSelectedMonth] = useState<number>(new Date().getMonth() + 1);
+  const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
+
   const [permissions, setPermissions] = useState<any[]>([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
 
+  const monthNames = [
+    'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+    'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
+  ];
+
+  // Helper untuk format tampilan tanggal DD-MM-YYYY / YYYY-MM-DD / ISO
+  const formatDateDisplay = (dateStr: string) => {
+    if (!dateStr) return '-';
+
+    if (typeof dateStr === 'string' && (dateStr.includes('-') || dateStr.includes('/'))) {
+      const separator = dateStr.includes('-') ? '-' : '/';
+      const parts = dateStr.split(separator);
+
+      if (parts.length === 3) {
+        let day: number, month: number, year: number;
+
+        if (parts[0].length === 4) {
+          year = Number(parts[0]);
+          month = Number(parts[1]);
+          day = Number(parts[2]);
+        } else {
+          day = Number(parts[0]);
+          month = Number(parts[1]);
+          year = Number(parts[2]);
+        }
+
+        if (!isNaN(day) && !isNaN(month) && !isNaN(year) && year > 1000) {
+          const d = new Date(year, month - 1, day);
+          return d.toLocaleDateString('id-ID', {
+            day: 'numeric',
+            month: 'short',
+            year: 'numeric',
+          });
+        }
+      }
+    }
+
+    const d = new Date(dateStr);
+    return isNaN(d.getTime())
+      ? dateStr
+      : d.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' });
+  };
+
+  // Helper memformat string jam (contoh: "09:00:00" atau "21:00" -> "09:00")
+      const formatTimeString = (timeStr: string) => {
+        if (!timeStr) return '-';
+        
+        // Jika formatnya HH:mm atau HH:mm:ss
+        const parts = timeStr.split(':');
+        if (parts.length >= 2) {
+          const hours = parts[0].padStart(2, '0');
+          const minutes = parts[1].padStart(2, '0');
+          return `${hours}:${minutes}`;
+        }
+        
+        return timeStr;
+      };
+
   // Fetch data pengajuan izin
   const fetchPermissions = async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/permissions');
-      const json = await res.json();
+      const response = await fetch(`/api/permissions?month=${selectedMonth}&year=${selectedYear}`);
+      const json = await response.json();
       if (json.success) {
         setPermissions(json.data || []);
       } else {
@@ -33,16 +95,16 @@ export default function IzinAbsensiPage() {
 
   useEffect(() => {
     fetchPermissions();
-  }, []);
+  }, [selectedMonth, selectedYear]);
 
   // Handler Approval / Rejection
   const handleUpdateStatus = async (id: string, newStatus: 'APPROVED' | 'REJECTED') => {
     setUpdatingId(id);
     try {
-      const res = await fetch(`/api/permissions/${id}`, {
+      const res = await fetch(`/api/permissions`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: newStatus }),
+        body: JSON.stringify({ id, status: newStatus === 'APPROVED' ? 'Approved' : 'Rejected' }),
       });
 
       const json = await res.json();
@@ -52,7 +114,7 @@ export default function IzinAbsensiPage() {
             ? 'Pengajuan berhasil disetujui & matriks diperbarui!'
             : 'Pengajuan telah ditolak.'
         );
-        fetchPermissions(); // Refresh list agar UI & matriks sinkron
+        fetchPermissions();
       } else {
         toast.error(json.error || 'Gagal memperbarui status pengajuan.');
       }
@@ -84,8 +146,9 @@ export default function IzinAbsensiPage() {
       'PIN Pegawai': item.pin,
       'Nama Pegawai': item.employeeName,
       'Tipe Izin': item.type,
-      'Tanggal Mulai': item.startDate,
-      'Tanggal Selesai': item.endDate,
+      'Jam Pulang Awal': item.type === 'Pulang Awal' && item.earlyLeaveTime ? item.earlyLeaveTime : '-',
+      'Tanggal Mulai': formatDateDisplay(item.startDate),
+      'Tanggal Selesai': formatDateDisplay(item.endDate),
       'Keterangan / Alasan': item.reason || '-',
       Status:
         item.status === 'APPROVED' || item.status === 'Approved'
@@ -93,9 +156,7 @@ export default function IzinAbsensiPage() {
           : item.status === 'REJECTED' || item.status === 'Rejected'
           ? 'Ditolak'
           : 'Pending',
-      'Tanggal Pengajuan': item.createdAt
-        ? new Date(item.createdAt).toLocaleDateString('id-ID')
-        : '-',
+      'Tanggal Pengajuan': formatDateDisplay(item.createdAt),
     }));
 
     const worksheet = XLSX.utils.json_to_sheet(dataToExport);
@@ -107,7 +168,8 @@ export default function IzinAbsensiPage() {
       { wch: 5 },
       { wch: 15 },
       { wch: max_width + 5 },
-      { wch: 12 },
+      { wch: 15 },
+      { wch: 16 },
       { wch: 15 },
       { wch: 15 },
       { wch: 30 },
@@ -115,7 +177,10 @@ export default function IzinAbsensiPage() {
       { wch: 18 },
     ];
 
-    XLSX.writeFile(workbook, `Laporan_Izin_Absensi_${new Date().toISOString().split('T')[0]}.xlsx`);
+    XLSX.writeFile(
+      workbook,
+      `Laporan_Izin_Absensi_${monthNames[selectedMonth - 1]}_${selectedYear}.xlsx`
+    );
     toast.success('Laporan berhasil diunduh!');
   };
 
@@ -126,21 +191,47 @@ export default function IzinAbsensiPage() {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold text-slate-900">Pengajuan Izin & Absensi</h1>
-            <p className="text-slate-500 text-sm">Kelola surat izin, cuti, sakit, dan dinas luar pegawai.</p>
+            <p className="text-slate-500 text-sm">Kelola surat izin, cuti, sakit, dinas luar, dan izin pulang awal pegawai.</p>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Dropdown Filter Bulan */}
+            <select
+              value={selectedMonth}
+              onChange={(e) => setSelectedMonth(Number(e.target.value))}
+              className="px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm font-semibold text-slate-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            >
+              {monthNames.map((name, index) => (
+                <option key={index + 1} value={index + 1}>
+                  {name}
+                </option>
+              ))}
+            </select>
+
+            {/* Dropdown Filter Tahun */}
+            <select
+              value={selectedYear}
+              onChange={(e) => setSelectedYear(Number(e.target.value))}
+              className="px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm font-semibold text-slate-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            >
+              {[2024, 2025, 2026, 2027].map((y) => (
+                <option key={y} value={y}>
+                  {y}
+                </option>
+              ))}
+            </select>
+
             <button
               onClick={exportToExcel}
-              className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl font-medium text-sm transition-colors shadow-sm"
+              className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl font-medium text-sm transition-colors shadow-sm"
             >
               <Download className="w-4 h-4" />
               Unduh Excel
             </button>
 
             <button
-              onClick={() => toast.info('Fitur Tambah Form Izin sedang disiapkan.')}
-              className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-xl font-medium text-sm transition-colors shadow-sm"
+              onClick={() => toast.info('Gunakan portal izin mandiri pegawai untuk mengajukan izin.')}
+              className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl font-medium text-sm transition-colors shadow-sm"
             >
               <Plus className="w-4 h-4" />
               Buat Form Izin
@@ -167,7 +258,7 @@ export default function IzinAbsensiPage() {
               <tr>
                 <th className="px-6 py-4">Pegawai</th>
                 <th className="px-6 py-4">Tipe Izin</th>
-                <th className="px-6 py-4">Rentang Tanggal</th>
+                <th className="px-6 py-4">Tanggal / Rentang</th>
                 <th className="px-6 py-4">Keterangan / Alasan</th>
                 <th className="px-6 py-4 text-center">Status / Aksi</th>
               </tr>
@@ -177,13 +268,13 @@ export default function IzinAbsensiPage() {
                 <tr>
                   <td colSpan={5} className="py-8 text-center text-slate-400">
                     <RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2 text-slate-400" />
-                    Memuat data...
+                    Memuat data bulan {monthNames[selectedMonth - 1]} {selectedYear}...
                   </td>
                 </tr>
               ) : filteredData.length === 0 ? (
                 <tr>
                   <td colSpan={5} className="py-8 text-center text-slate-400">
-                    Tidak ada pengajuan izin ditemukan.
+                    Tidak ada pengajuan izin pada bulan {monthNames[selectedMonth - 1]} {selectedYear}.
                   </td>
                 </tr>
               ) : (
@@ -193,25 +284,62 @@ export default function IzinAbsensiPage() {
                   const isApproved = statusUpper === 'APPROVED' || statusUpper === 'DISETUJUI';
                   const isRejected = statusUpper === 'REJECTED' || statusUpper === 'DITOLAK';
 
+                  const formattedStartDate = formatDateDisplay(item.startDate);
+                  const formattedEndDate = formatDateDisplay(item.endDate);
+                  const isSingleDay = item.type === 'Pulang Awal' || item.type === 'Terlambat' || item.startDate === item.endDate;
+
                   return (
                     <tr key={item.id} className="hover:bg-slate-50 transition-colors">
+                      {/* Pegawai */}
                       <td className="px-6 py-4">
                         <div className="font-bold text-slate-800">{item.employeeName}</div>
                         <div className="text-xs text-slate-400 font-mono">PIN: {item.pin}</div>
                       </td>
+
+                      {/* Tipe Izin + Badge Jam Pulang Awal */}
                       <td className="px-6 py-4">
-                        <span className="px-3 py-1 bg-purple-100 text-purple-700 rounded-lg text-xs font-semibold">
-                          {item.type}
-                        </span>
+                        <div className="flex flex-col items-start gap-1">
+                          <span
+                            className={`px-2.5 py-1 rounded-lg text-xs font-semibold ${
+                              item.type === 'Pulang Awal'
+                                ? 'bg-orange-100 text-orange-700 border border-orange-200'
+                                : item.type === 'Sakit'
+                                ? 'bg-rose-100 text-rose-700'
+                                : item.type === 'Terlambat'
+                                ? 'bg-amber-100 text-amber-700'
+                                : 'bg-purple-100 text-purple-700'
+                            }`}
+                          >
+                            {item.type}
+                          </span>
+
+                          {/* Info Khusus Jam Rencana Pulang Awal */}
+                          {item.type === 'Pulang Awal' && item.earlyLeaveTime && (
+                            <div className="flex items-center gap-1 text-[11px] font-mono font-bold text-orange-800 bg-orange-50 px-2 py-0.5 rounded-md border border-orange-200">
+                              <Clock className="w-3 h-3 text-orange-600 shrink-0" />
+                              <span>Jam {formatTimeString(item.earlyLeaveTime)}</span>
+                            </div>
+                          )}
+                        </div>
                       </td>
+
+                      {/* Tanggal / Rentang Tanggal */}
                       <td className="px-6 py-4 text-xs font-mono text-slate-600">
-                        {item.startDate} <br />
-                        <span className="text-slate-400">s/d</span> <br />
-                        {item.endDate}
+                        {isSingleDay ? (
+                          <span className="font-bold text-slate-700">{formattedStartDate}</span>
+                        ) : (
+                          <>
+                            {formattedStartDate} <br />
+                            <span className="text-slate-400">s/d</span> <br />
+                            {formattedEndDate}
+                          </>
+                        )}
                       </td>
+
+                      {/* Alasan */}
                       <td className="px-6 py-4 text-slate-600 text-xs max-w-xs">{item.reason || '-'}</td>
-                      
-                      {/* Kolom Akses Approval */}
+
+                      {/* Status / Akses Approval */}
                       <td className="px-6 py-4 text-center">
                         {updatingId === item.id ? (
                           <div className="flex items-center justify-center gap-1 text-slate-400 text-xs">

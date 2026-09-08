@@ -9,6 +9,8 @@ interface ExportProps {
   stats: any;
   topLate: any[];
   topPermission: any[];
+  topDiligent?: any[];
+  topPunctual?: any[];
 }
 
 export default function ExportDashboardButtons({
@@ -17,13 +19,13 @@ export default function ExportDashboardButtons({
   stats,
   topLate,
   topPermission,
+  topDiligent = [],
+  topPunctual = [],
 }: ExportProps) {
-  // 1. Export PDF (Menggunakan Print Native Browser)
   const handlePrintPDF = () => {
     window.print();
   };
 
-  // 2. Export Word Document (.doc)
   const handleExportWord = () => {
     const headerHtml = `<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
     <head><title>Laporan Evaluasi Presensi</title>
@@ -37,6 +39,8 @@ export default function ExportDashboardButtons({
       .badge { font-weight: bold; padding: 3px 8px; border-radius: 4px; }
       .late { background-color: #fef3c7; color: #92400e; }
       .perm { background-color: #f3e8ff; color: #6b21a8; }
+      .good { background-color: #dcfce7; color: #166534; }
+      .blue { background-color: #dbeafe; color: #1e40af; }
     </style>
     </head><body>`;
 
@@ -56,7 +60,39 @@ export default function ExportDashboardButtons({
         <tr><td><b>Total Log Presensi Masuk</b></td><td colspan="2"><b>${stats.totalLogMasuk} Log</b> (dari ${stats.totalSlotKapasitas} Potensi Slot)</td></tr>
       </table>
 
-      <h2>2. TOP 5 PEGAWAI SERING TERLAMBAT</h2>
+      <h2>2. TOP 5 GURU PALING RAJIN</h2>
+      <table>
+        <tr><th>No</th><th>Nama Pegawai</th><th>Total Kehadiran</th></tr>
+        ${
+          topDiligent.length > 0
+            ? topDiligent
+                .map(
+                  (emp, i) =>
+                    `<tr><td>${i + 1}</td><td>${emp.name}</td><td><span class="badge good">${emp.totalHadir} Hari</span></td></tr>`
+                )
+                .join('')
+            : '<tr><td colspan="3">Tidak ada data kehadiran bulan ini.</td></tr>'
+        }
+      </table>
+
+      <h2>3. TOP 5 PALING DISIPLIN WAKTU</h2>
+      <table>
+        <tr><th>No</th><th>Nama Pegawai</th><th>Catatan Keterlambatan</th></tr>
+        ${
+          topPunctual.length > 0
+            ? topPunctual
+                .map(
+                  (emp, i) =>
+                    `<tr><td>${i + 1}</td><td>${emp.name}</td><td><span class="badge blue">${
+                      emp.totalTelat === 0 ? 'Tidak Pernah Telat' : emp.totalTelat + 'x Telat'
+                    }</span></td></tr>`
+                )
+                .join('')
+            : '<tr><td colspan="3">Tidak ada data bulan ini.</td></tr>'
+        }
+      </table>
+
+      <h2>4. TOP 5 PEGAWAI SERING TERLAMBAT</h2>
       <table>
         <tr><th>No</th><th>Nama Pegawai</th><th>PIN</th><th>Total Keterlambatan</th></tr>
         ${
@@ -71,7 +107,7 @@ export default function ExportDashboardButtons({
         }
       </table>
 
-      <h2>3. TOP 5 PEGAWAI SERING IZIN / SAKIT</h2>
+      <h2>5. TOP 5 PEGAWAI SERING IZIN / SAKIT</h2>
       <table>
         <tr><th>No</th><th>Nama Pegawai</th><th>Alasan Utama</th><th>Total Pengajuan</th></tr>
         ${

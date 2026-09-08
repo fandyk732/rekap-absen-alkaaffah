@@ -119,6 +119,8 @@ export default function DashboardPage() {
               stats={stats}
               topLate={data.topLateEmployees}
               topPermission={data.topPermissionEmployees}
+              topDiligent={diligent}
+              topPunctual={punctual}
             />
             
             <button

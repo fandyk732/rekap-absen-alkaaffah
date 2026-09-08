@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import AppLayout from '@/components/AppLayout';
-import { Calendar, Download, RefreshCw, Search } from 'lucide-react';
+import { Calendar, Download, RefreshCw, Search, LogIn, LogOut } from 'lucide-react';
 import { toast } from 'sonner';
 import ExcelJS from 'exceljs';
 import { saveAs } from 'file-saver';
@@ -55,7 +55,7 @@ export default function MatriksKehadiranPage() {
       )
     : [];
 
-  // FUNGSI EKSPOR EXCEL
+  // FUNGSI EKSPOR EXCEL (DENGAN JAM MASUK & PULANG)
   const exportToExcel = async () => {
     if (filteredData.length === 0) {
       toast.error('Tidak ada data untuk diekspor!');
@@ -76,7 +76,7 @@ export default function MatriksKehadiranPage() {
       titleCell.font = { name: 'Arial', size: 14, bold: true, color: { argb: 'FF1E293B' } };
       titleCell.alignment = { vertical: 'middle', horizontal: 'center' };
 
-      worksheet.addRow([]); // Row kosong (Row 2)
+      worksheet.addRow([]); // Row 2 kosong
 
       // 2. Header Tabel
       const headerRowValues: any[] = ['No', 'PIN', 'Nama Pegawai', 'Jabatan'];
@@ -86,19 +86,17 @@ export default function MatriksKehadiranPage() {
       headerRowValues.push('H', 'T', 'I', 'S', 'A');
 
       const headerRow = worksheet.addRow(headerRowValues);
-      headerRow.height = 24;
+      headerRow.height = 26;
 
-      // Styling Header Row
       headerRow.eachCell((cell, colNumber) => {
         cell.font = { name: 'Arial', size: 10, bold: true, color: { argb: 'FFFFFFFF' } };
         cell.alignment = { vertical: 'middle', horizontal: 'center' };
         
         if (colNumber <= 4) {
-          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF334155' } }; // Slate-700
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF334155' } };
         } else if (colNumber <= 4 + daysInMonth) {
-          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF475569' } }; // Slate-600
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF475569' } };
         } else {
-          // Total Kolom H, T, I, S, A
           const bgColors = ['FF059669', 'FFD97706', 'FF2563EB', 'FF9333EA', 'FFE11D48'];
           const idx = colNumber - (4 + daysInMonth) - 1;
           cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bgColors[idx] || 'FF334155' } };
@@ -125,61 +123,93 @@ export default function MatriksKehadiranPage() {
 
         for (let day = 1; day <= daysInMonth; day++) {
           const statusObj = emp.dailyStatus?.[String(day)];
-          let code = '-';
+          let cellText = '-';
+          let code = '-'; // DEKLARASI DIBUAT DI SINI (BERESIN ERROR)
 
           if (statusObj) {
             switch (statusObj.status) {
-              case 'Hadir': code = 'H'; totalH++; break;
-              case 'Terlambat': code = 'T'; totalT++; break;
-              case 'Izin': code = 'I'; totalI++; break;
-              case 'Sakit': code = 'S'; totalS++; break;
-              case 'Alpha': code = 'A'; totalA++; break;
+              case 'Hadir':
+                totalH++;
+                code = 'H';
+                const inTimeH = statusObj.checkIn || '-';
+                const outTimeH = statusObj.checkOut || '?';
+                cellText = `M: ${inTimeH}\nP: ${outTimeH}`;
+                break;
+              case 'Terlambat':
+                totalT++;
+                code = 'T';
+                const inTimeT = statusObj.checkIn || '-';
+                const outTimeT = statusObj.checkOut || '?';
+                cellText = `M: ${inTimeT}\nP: ${outTimeT}`;
+                break;
+              case 'Izin':
+                code = 'I';
+                totalI++;
+                cellText = 'I';
+                break;
+              case 'Sakit':
+                code = 'S';
+                totalS++;
+                cellText = 'S';
+                break;
+              case 'Alpha':
+                code = 'A';
+                totalA++;
+                cellText = 'A';
+                break;
             }
           }
-          rowValues.push(code);
+          rowValues.push(cellText);
         }
 
         rowValues.push(totalH, totalT, totalI, totalS, totalA);
 
         const dataRow = worksheet.addRow(rowValues);
-        dataRow.height = 20;
+        dataRow.height = 32;
 
         // Styling Data Cells
         dataRow.eachCell((cell, colNumber) => {
-          cell.font = { name: 'Arial', size: 9 };
-          cell.alignment = { vertical: 'middle', horizontal: 'center' };
+          cell.font = { name: 'Arial', size: 8 };
+          cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
 
-          // Kolom Nama & Jabatan rata kiri
           if (colNumber === 3 || colNumber === 4) {
-            cell.alignment = { vertical: 'middle', horizontal: 'left' };
+            cell.alignment = { vertical: 'middle', horizontal: 'left', wrapText: true };
           }
 
-          // Warna Status Harian
+          // Format Sel Harian (Tanggal)
           if (colNumber > 4 && colNumber <= 4 + daysInMonth) {
-            const val = String(cell.value);
-            if (val === 'H') {
-              cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD1FAE5' } }; // Light Green
-              cell.font = { bold: true, color: { argb: 'FF065F46' } };
-            } else if (val === 'T') {
-              cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF3C7' } }; // Light Yellow
-              cell.font = { bold: true, color: { argb: 'FF92400E' } };
-            } else if (val === 'I') {
-              cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDBEAFE' } }; // Light Blue
-              cell.font = { bold: true, color: { argb: 'FF1E40AF' } };
-            } else if (val === 'S') {
-              cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF3E8FF' } }; // Light Purple
-              cell.font = { bold: true, color: { argb: 'FF6B21A8' } };
-            } else if (val === 'A') {
-              cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEE2E2' } }; // Light Red
-              cell.font = { bold: true, color: { argb: 'FF991B1B' } };
+            const dayNum = colNumber - 4;
+            const statusObj = emp.dailyStatus?.[String(dayNum)];
+
+            if (statusObj) {
+              if (statusObj.status === 'Hadir') {
+                if (statusObj.isEarlyLeave) {
+                  cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFEDD5' } };
+                  cell.font = { size: 8, bold: true, color: { argb: 'FFC2410C' } };
+                } else {
+                  cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD1FAE5' } };
+                  cell.font = { size: 8, color: { argb: 'FF065F46' } };
+                }
+              } else if (statusObj.status === 'Terlambat') {
+                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF3C7' } };
+                cell.font = { size: 8, bold: true, color: { argb: 'FF92400E' } };
+              } else if (statusObj.status === 'Izin') {
+                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDBEAFE' } };
+                cell.font = { size: 9, bold: true, color: { argb: 'FF1E40AF' } };
+              } else if (statusObj.status === 'Sakit') {
+                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF3E8FF' } };
+                cell.font = { size: 9, bold: true, color: { argb: 'FF6B21A8' } };
+              } else if (statusObj.status === 'Alpha') {
+                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEE2E2' } };
+                cell.font = { size: 9, bold: true, color: { argb: 'FF991B1B' } };
+              }
             } else {
-              cell.font = { color: { argb: 'FF94A3B8' } };
+              cell.font = { size: 9, color: { argb: 'FF94A3B8' } };
             }
           }
 
-          // Total Kolom Styling
           if (colNumber > 4 + daysInMonth) {
-            cell.font = { bold: true };
+            cell.font = { size: 9, bold: true };
           }
 
           cell.border = {
@@ -192,17 +222,17 @@ export default function MatriksKehadiranPage() {
       });
 
       // 4. Pengaturan Lebar Kolom
-      worksheet.getColumn(1).width = 5;   // No
-      worksheet.getColumn(2).width = 12;  // PIN
-      worksheet.getColumn(3).width = 25;  // Nama
-      worksheet.getColumn(4).width = 18;  // Jabatan
+      worksheet.getColumn(1).width = 5;
+      worksheet.getColumn(2).width = 12;
+      worksheet.getColumn(3).width = 25;
+      worksheet.getColumn(4).width = 18;
 
       for (let i = 5; i <= 4 + daysInMonth; i++) {
-        worksheet.getColumn(i).width = 4.5; // Tanggal
+        worksheet.getColumn(i).width = 8.5;
       }
 
       for (let i = 5 + daysInMonth; i <= 9 + daysInMonth; i++) {
-        worksheet.getColumn(i).width = 6;   // Total H, T, I, S, A
+        worksheet.getColumn(i).width = 6;
       }
 
       // 5. Generate & Save File
@@ -226,7 +256,7 @@ export default function MatriksKehadiranPage() {
           <div>
             <h1 className="text-2xl font-bold text-slate-900">Matriks Kehadiran Pegawai</h1>
             <p className="text-slate-500 text-sm">
-              Rekapitulasi lengkap kehadiran, izin, sakit, dan alpha harian pegawai.
+              Rekapitulasi lengkap jam masuk, jam pulang, izin, sakit, dan alpha harian pegawai.
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -278,6 +308,7 @@ export default function MatriksKehadiranPage() {
             <div className="flex flex-wrap items-center gap-3 text-xs pl-2 border-l border-slate-200">
               <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span> H (Hadir)</span>
               <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-amber-500"></span> T (Terlambat)</span>
+              <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-orange-500"></span> PC (Pulang Cepat)</span>
               <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-blue-500"></span> I (Izin)</span>
               <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-purple-500"></span> S (Sakit)</span>
               <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-rose-500"></span> A (Alpha)</span>
@@ -307,7 +338,7 @@ export default function MatriksKehadiranPage() {
                     Pegawai
                   </th>
                   {Array.from({ length: daysInMonth }, (_, i) => i + 1).map((d) => (
-                    <th key={d} className="py-2 px-1 text-center border-r border-slate-200 min-w-[32px]">
+                    <th key={d} className="py-2 px-1 text-center border-r border-slate-200 min-w-[58px]">
                       {d}
                     </th>
                   ))}
@@ -346,52 +377,93 @@ export default function MatriksKehadiranPage() {
                         {Array.from({ length: daysInMonth }, (_, i) => i + 1).map((d) => {
                           const cellData = emp.dailyStatus?.[String(d)];
                           let code = '-';
-                          let color = 'bg-slate-50 text-slate-300';
                           let title = 'Libur / Tidak ada log';
 
                           if (cellData) {
                             switch (cellData.status) {
                               case 'Hadir':
                                 code = 'H';
-                                color = 'bg-emerald-100 text-emerald-800 font-bold';
-                                title = `Hadir (${cellData.checkIn || 'Tepat Waktu'})`;
                                 totalH++;
                                 break;
                               case 'Terlambat':
                                 code = 'T';
-                                color = 'bg-amber-100 text-amber-800 font-bold';
-                                title = `Terlambat (${cellData.checkIn || '-'})`;
                                 totalT++;
                                 break;
                               case 'Izin':
                                 code = 'I';
-                                color = 'bg-blue-100 text-blue-800 font-bold';
-                                title = 'Izin Kerja';
                                 totalI++;
                                 break;
                               case 'Sakit':
                                 code = 'S';
-                                color = 'bg-purple-100 text-purple-800 font-bold';
-                                title = 'Sakit';
                                 totalS++;
                                 break;
                               case 'Alpha':
                                 code = 'A';
-                                color = 'bg-rose-100 text-rose-800 font-bold';
-                                title = 'Alpha (Tanpa Keterangan)';
                                 totalA++;
                                 break;
                             }
                           }
 
                           return (
-                            <td key={d} className="py-1 px-0.5 text-center border-r border-slate-100">
-                              <span 
-                                title={title}
-                                className={`inline-flex items-center justify-center w-6 h-6 rounded text-[10px] cursor-default ${color}`}
-                              >
-                                {code}
-                              </span>
+                            <td key={d} className="py-1 px-0.5 text-center border-r border-slate-100 vertical-middle relative group">
+                              {!cellData || cellData.status === 'Libur' ? (
+                                <span title={title} className="text-[10px] text-slate-300 select-none">-</span>
+                              ) : cellData.status === 'Alpha' ? (
+                                <span title="Alpha (Tanpa Keterangan)" className="inline-flex items-center justify-center w-6 h-6 rounded bg-rose-100 text-rose-800 font-bold text-[10px]">
+                                  A
+                                </span>
+                              ) : cellData.status === 'Izin' || cellData.status === 'Sakit' ? (
+                                <span 
+                                  title={cellData.status === 'Sakit' ? 'Sakit' : 'Izin'}
+                                  className={`inline-flex items-center justify-center w-6 h-6 rounded font-bold text-[10px] ${
+                                    cellData.status === 'Sakit' ? 'bg-purple-100 text-purple-800' : 'bg-blue-100 text-blue-800'
+                                  }`}
+                                >
+                                  {cellData.status === 'Sakit' ? 'S' : 'I'}
+                                </span>
+                              ) : (
+                                /* TAMPILAN BERTUMPUK: JAM MASUK & JAM PULANG */
+                                <div
+                                  className={`p-1 rounded flex flex-col items-center justify-center gap-0.5 border ${
+                                    cellData.status === 'Terlambat'
+                                      ? 'bg-amber-50 border-amber-200 text-amber-800'
+                                      : 'bg-emerald-50 border-emerald-100 text-emerald-800'
+                                  }`}
+                                >
+                                  {/* Jam Masuk */}
+                                  <div className="flex items-center gap-0.5 font-mono text-[9px] font-bold">
+                                    <LogIn className="w-2.5 h-2.5 text-emerald-600 shrink-0" />
+                                    {cellData.checkIn || '-'}
+                                  </div>
+
+                                  {/* Jam Pulang */}
+                                  <div
+                                    className={`flex items-center gap-0.5 font-mono text-[9px] ${
+                                      cellData.isEarlyLeave
+                                        ? 'text-orange-600 font-extrabold'
+                                        : cellData.noCheckout
+                                        ? 'text-slate-400 font-normal'
+                                        : 'text-slate-600 font-medium'
+                                    }`}
+                                  >
+                                    <LogOut className="w-2.5 h-2.5 text-slate-400 shrink-0" />
+                                    {cellData.checkOut && cellData.checkOut !== '-' ? cellData.checkOut : '?'}
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Tooltip Hover Detail */}
+                              {cellData && cellData.status !== 'Libur' && (
+                                <div className="hidden group-hover:block absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 w-32 bg-slate-900 text-white text-[10px] rounded-md p-2 shadow-xl z-30 pointer-events-none text-left">
+                                  <p className="font-bold border-b border-slate-700 pb-0.5 mb-1 text-slate-300">
+                                    Tgl {d} - {cellData.status}
+                                  </p>
+                                  {cellData.checkIn && <p className="text-emerald-400">Masuk: {cellData.checkIn}</p>}
+                                  {cellData.checkOut && <p className="text-blue-300">Pulang: {cellData.checkOut}</p>}
+                                  {cellData.isEarlyLeave && <p className="text-orange-400 font-bold mt-0.5">⚠️ Pulang Cepat</p>}
+                                  {cellData.noCheckout && <p className="text-slate-400 mt-0.5">⚠️ Lupa Scan Pulang</p>}
+                                </div>
+                              )}
                             </td>
                           );
                         })}
