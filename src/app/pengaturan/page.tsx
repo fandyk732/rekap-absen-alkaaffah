@@ -58,7 +58,7 @@ export default function PengaturanPage() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Apakah kamu yakin ingin menghapus hari libur ini?')) return;
+    if (!confirm('Apakah Anda yakin ingin menghapus hari libur ini?')) return;
 
     try {
       const res = await fetch(`/api/holidays?id=${id}`, { method: 'DELETE' });

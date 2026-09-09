@@ -1,36 +1,18 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { FileText, Send, CheckCircle2, Search, Calendar, UserCheck, Clock, AlertCircle } from 'lucide-react';
-import { toast } from 'sonner';
+import { FileText } from 'lucide-react';
+
+import EmployeeSelector from './components/EmployeeSelector';
+import PermissionForm from './components/PermissionForm';
+import SuccessState from './components/SuccessState';
 
 export default function FormIzinMandiriPage() {
   const [employees, setEmployees] = useState<any[]>([]);
   const [employee, setEmployee] = useState<any>(null);
-  const [pin, setPin] = useState('');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [showDropdown, setShowDropdown] = useState(false);
-  const [verifying, setVerifying] = useState(false);
-
-  // Form State
-  const [type, setType] = useState('Izin');
-  const [reason, setReason] = useState('');
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
-  const [earlyLeaveTime, setEarlyLeaveTime] = useState('12:00'); // State jam pulang awal
-  const [submitting, setSubmitting] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
 
-  useEffect(() => {
-    if ('serviceWorker' in navigator && process.env.NODE_ENV === 'production') {
-      navigator.serviceWorker
-        .register('/sw.js')
-        .then((reg) => console.log('SW registered:', reg))
-        .catch((err) => console.error('SW registration failed:', err));
-    }
-  }, []);
-
-  // Ambil daftar pegawai untuk fitur pencarian nama
+  // Fetch daftar pegawai
   useEffect(() => {
     const fetchEmployees = async () => {
       try {
@@ -46,79 +28,9 @@ export default function FormIzinMandiriPage() {
     fetchEmployees();
   }, []);
 
-  // Filter pegawai berdasarkan nama yang diketik
-  const filteredEmployees = employees.filter((emp) =>
-    emp.name.toLowerCase().includes(searchQuery.toLowerCase())
-  );
-
-  // Verifikasi via PIN manual
-  const handleVerifyPin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!pin) return toast.error('Masukkan PIN Anda');
-
-    setVerifying(true);
-    try {
-      const res = await fetch('/api/employees/verify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pin }),
-      });
-      const json = await res.json();
-
-      if (json.success) {
-        setEmployee(json.data);
-        toast.success(`Selamat datang, ${json.data.name}`);
-      } else {
-        toast.error(json.error || 'PIN tidak ditemukan.');
-      }
-    } catch (err) {
-      toast.error('Gagal terhubung ke server.');
-    } finally {
-      setVerifying(false);
-    }
-  };
-
-  // Submit Form Pengajuan
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!employee) return;
-
-    setSubmitting(true);
-    try {
-      const formatToDDMMYYYY = (dateStr: string) => {
-        if (!dateStr) return '';
-        const [y, m, d] = dateStr.split('-');
-        return `${d}-${m}-${y}`;
-      };
-
-      const payload = {
-        pin: employee.pin,
-        employeeName: employee.name,
-        type,
-        reason,
-        startDate: formatToDDMMYYYY(startDate),
-        endDate: formatToDDMMYYYY(type === 'Pulang Awal' || type === 'Terlambat' ? startDate : endDate),
-        earlyLeaveTime: type === 'Pulang Awal' ? earlyLeaveTime : null,
-      };
-
-      const res = await fetch('/api/permissions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-
-      const json = await res.json();
-      if (json.success) {
-        setIsSuccess(true);
-        toast.success('Pengajuan izin berhasil terkirim!');
-      } else {
-        toast.error(json.error || 'Gagal mengirim pengajuan.');
-      }
-    } catch (err) {
-      toast.error('Terjadi kesalahan server.');
-    } finally {
-      setSubmitting(false);
-    }
+  const handleResetAll = () => {
+    setIsSuccess(false);
+    setEmployee(null);
   };
 
   return (
@@ -133,224 +45,18 @@ export default function FormIzinMandiriPage() {
 
         <div className="p-6">
           {isSuccess ? (
-            <div className="text-center py-8 space-y-4">
-              <CheckCircle2 className="w-16 h-16 text-emerald-500 mx-auto" />
-              <h2 className="text-lg font-bold text-slate-800">Pengajuan Berhasil Ditambahkan!</h2>
-              <p className="text-sm text-slate-500">
-                Data izin Anda telah terkirim ke sistem. Silakan tunggu konfirmasi persetujuan dari Admin.
-              </p>
-              <button
-                onClick={() => {
-                  setIsSuccess(false);
-                  setEmployee(null);
-                  setPin('');
-                  setReason('');
-                  setStartDate('');
-                  setEndDate('');
-                  setType('Izin');
-                  setEarlyLeaveTime('12:00');
-                }}
-                className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2.5 rounded-xl text-sm transition-colors"
-              >
-                Buat Pengajuan Lain
-              </button>
-            </div>
+            <SuccessState onReset={handleResetAll} />
           ) : !employee ? (
-            /* Step 1: Cari Nama ATAU Ketik PIN */
-            <div className="space-y-4">
-              <div className="relative">
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  1. Cari & Pilih Nama Guru / Pegawai
-                </label>
-                <div className="relative">
-                  <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                  <input
-                    type="text"
-                    placeholder="Ketik nama Anda di sini..."
-                    value={searchQuery}
-                    onChange={(e) => {
-                      setSearchQuery(e.target.value);
-                      setShowDropdown(true);
-                    }}
-                    onFocus={() => setShowDropdown(true)}
-                    className="w-full pl-9 pr-3 text-sm bg-slate-50 border border-slate-300 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                  />
-                </div>
-
-                {/* Dropdown Auto-complete */}
-                {showDropdown && searchQuery.length > 0 && (
-                  <div className="absolute z-10 w-full mt-1 bg-white border border-slate-200 rounded-xl shadow-xl max-h-48 overflow-y-auto divide-y divide-slate-100">
-                    {filteredEmployees.length > 0 ? (
-                      filteredEmployees.map((emp) => (
-                        <button
-                          key={emp.pin}
-                          type="button"
-                          onClick={() => {
-                            setEmployee(emp);
-                            setShowDropdown(false);
-                            setSearchQuery('');
-                            toast.success(`Dipilih: ${emp.name}`);
-                          }}
-                          className="w-full text-left p-3 hover:bg-indigo-50 transition-colors flex items-center justify-between"
-                        >
-                          <span className="font-semibold text-sm text-slate-800">{emp.name}</span>
-                          <span className="text-xs text-slate-400 font-mono">PIN: {emp.pin}</span>
-                        </button>
-                      ))
-                    ) : (
-                      <div className="p-3 text-xs text-slate-400 text-center">Nama tidak ditemukan</div>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              <div className="relative flex py-1 items-center">
-                <div className="flex-grow border-t border-slate-200"></div>
-                <span className="flex-shrink mx-3 text-[10px] text-slate-400 uppercase font-semibold">Atau</span>
-                <div className="flex-grow border-t border-slate-200"></div>
-              </div>
-
-              {/* Form Input PIN Manual */}
-              <form onSubmit={handleVerifyPin} className="space-y-3">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    2. Masukkan PIN Manual (Jika Ingat)
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="Contoh: 1029"
-                    value={pin}
-                    onChange={(e) => setPin(e.target.value)}
-                    className="w-full text-center text-base font-mono tracking-widest bg-slate-50 border border-slate-300 rounded-xl p-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                  />
-                </div>
-                <button
-                  type="submit"
-                  disabled={verifying || !pin}
-                  className="w-full bg-slate-800 hover:bg-slate-900 text-white font-medium py-2.5 rounded-xl text-xs transition-colors disabled:opacity-50"
-                >
-                  {verifying ? 'Memeriksa...' : 'Lanjutkan via PIN'}
-                </button>
-              </form>
-            </div>
+            <EmployeeSelector
+              employees={employees}
+              onSelectEmployee={(selected) => setEmployee(selected)}
+            />
           ) : (
-            /* Step 2: Form Isian Izin */
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="bg-indigo-50 p-3 rounded-xl border border-indigo-100 flex items-center justify-between">
-                <div>
-                  <div className="text-[10px] text-indigo-500 font-semibold uppercase tracking-wider">Pemohon</div>
-                  <div className="font-bold text-slate-800 text-sm">{employee.name}</div>
-                  <div className="text-[10px] text-slate-500 font-mono">PIN: {employee.pin}</div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setEmployee(null)}
-                  className="text-xs text-indigo-600 underline font-medium"
-                >
-                  Ganti
-                </button>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Jenis Ketidakhadiran</label>
-                <select
-                  value={type}
-                  onChange={(e) => {
-                    const selected = e.target.value;
-                    setType(selected);
-                    // Opsi tanggal otomatis ter-update jika jenisnya harian tunggal
-                    if ((selected === 'Terlambat' || selected === 'Pulang Awal') && startDate) {
-                      setEndDate(startDate);
-                    }
-                  }}
-                  className="w-full text-sm bg-slate-50 border border-slate-300 rounded-xl p-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                >
-                  <option value="Izin">Izin (Full Day)</option>
-                  <option value="Pulang Awal">Izin Pulang Awal</option>
-                  <option value="Terlambat">Terlambat Masuk Kerja</option>
-                  <option value="Sakit">Sakit</option>
-                  <option value="Cuti">Cuti</option>
-                  <option value="Dinas Luar">Dinas Luar</option>
-                </select>
-              </div>
-
-              {/* Di bagian Input Time Form Mandiri */}
-                {type === 'Pulang Awal' && (
-                  <div className="p-3 bg-orange-50 border border-orange-200 rounded-xl space-y-2">
-                    <div className="flex items-center gap-1.5 text-orange-800 text-xs font-semibold">
-                      <Clock className="w-4 h-4 text-orange-600 shrink-0" />
-                      <span>Jam Rencana Pulang (Format 24 Jam)</span>
-                    </div>
-                    <input
-                      type="time"
-                      value={earlyLeaveTime}
-                      onChange={(e) => setEarlyLeaveTime(e.target.value)}
-                      required
-                      step="60" // Memaksa langkah per menit
-                      className="w-full text-sm font-mono font-bold bg-white border border-orange-300 rounded-lg p-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-orange-500"
-                    />
-                  </div>
-                )}
-
-              {/* Input Tanggal */}
-              <div className={type === 'Pulang Awal' || type === 'Terlambat' ? 'block' : 'grid grid-cols-2 gap-3'}>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    {type === 'Pulang Awal' || type === 'Terlambat' ? 'Tanggal' : 'Mulai Tanggal'}
-                  </label>
-                  <input
-                    type="date"
-                    value={startDate}
-                    onChange={(e) => {
-                      setStartDate(e.target.value);
-                      if (type === 'Terlambat' || type === 'Pulang Awal') {
-                        setEndDate(e.target.value);
-                      }
-                    }}
-                    required
-                    className="w-full text-sm bg-slate-50 border border-slate-300 rounded-xl p-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                  />
-                </div>
-
-                {type !== 'Pulang Awal' && type !== 'Terlambat' && (
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">Sampai Tanggal</label>
-                    <input
-                      type="date"
-                      value={endDate}
-                      onChange={(e) => setEndDate(e.target.value)}
-                      required
-                      className="w-full text-sm bg-slate-50 border border-slate-300 rounded-xl p-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                    />
-                  </div>
-                )}
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Alasan / Keterangan</label>
-                <textarea
-                  rows={3}
-                  value={reason}
-                  onChange={(e) => setReason(e.target.value)}
-                  placeholder={
-                    type === 'Pulang Awal'
-                      ? 'Contoh: Mengantar anak berobat / Ada keperluan keluarga mendadak...'
-                      : 'Contoh: Menghadiri acara keluarga / Sakit demam...'
-                  }
-                  required
-                  className="w-full text-sm bg-slate-50 border border-slate-300 rounded-xl p-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                />
-              </div>
-
-              <button
-                type="submit"
-                disabled={submitting}
-                className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-3 rounded-xl text-sm transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
-              >
-                <Send className="w-4 h-4" />
-                {submitting ? 'Mengirim...' : 'Kirim Pengajuan Izin'}
-              </button>
-            </form>
+            <PermissionForm
+              employee={employee}
+              onResetEmployee={() => setEmployee(null)}
+              onSuccess={() => setIsSuccess(true)}
+            />
           )}
         </div>
       </div>

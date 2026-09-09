@@ -57,31 +57,25 @@ const parseFlexibleDate = (dateStr: string): Date | null => {
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
-    const month = Number(searchParams.get('month')) || new Date().getMonth() + 1;
-    const year = Number(searchParams.get('year')) || new Date().getFullYear();
+    const now = new Date();
+    const month = Number(searchParams.get('month')) || now.getMonth() + 1;
+    const year = Number(searchParams.get('year')) || now.getFullYear();
 
     const monthStr = String(month).padStart(2, '0');
     const yearStr = String(year);
     const daysInMonth = new Date(year, month, 0).getDate();
 
-    // 1. FETCH DATA SECARA PARALEL (PROMISE.ALL) UNTUK KECEPATAN MAKSIMAL
+    // 1. FETCH DATA PARALEL (Hanya ambil pegawai Aktif)
     const [settingRecord, employees, monthlyLogs, holidays, permissions] = await Promise.all([
       prisma.setting.findFirst().catch(() => null),
       prisma.employee.findMany({
+        where: { status: 'Aktif' }, // 🔥 Filter hanya pegawai aktif
         include: { schedules: true },
         orderBy: { name: 'asc' },
       }),
-      // Hanya ambil log absensi untuk bulan & tahun yang diminta
-      prisma.attendanceLog.findMany({
-        where: {
-          OR: [
-            { date: { contains: `${yearStr}-${monthStr}` } },
-            { date: { contains: `-${monthStr}-${yearStr}` } },
-          ],
-        },
-      }).catch(() => []),
+      // 🔥 Fetch semua log tanpa filter string contains kaku, atau gunakan regex
+      prisma.attendanceLog.findMany().catch(() => []),
       prisma.holiday.findMany().catch(() => []),
-      // Hanya ambil izin yang di-approve
       prisma.permission.findMany({
         where: { status: { in: ['Approved', 'APPROVED', 'approved', 'Disetujui', 'DISETUJUI'] } },
       }).catch(() => []),
@@ -110,10 +104,17 @@ export async function GET(req: NextRequest) {
     let totalIzinSakitGlobal = 0;
     let totalAlphaGlobal = 0;
 
+    // Filter log hanya untuk bulan & tahun yang bersangkutan (fleksibel)
+    const filteredMonthlyLogs = monthlyLogs.filter((log: any) => {
+      const parsedD = parseFlexibleDate(log.date);
+      if (!parsedD) return false;
+      return parsedD.getMonth() + 1 === month && parsedD.getFullYear() === year;
+    });
+
     // 2. OLAH MATRIKS PER PEGAWAI
     const matrixData = employees.map((emp: any) => {
       const empPinStr = String(emp.pin).trim();
-      const empLogs = monthlyLogs.filter((l: any) => String(l.pin || '').trim() === empPinStr);
+      const empLogs = filteredMonthlyLogs.filter((l: any) => String(l.pin || '').trim() === empPinStr);
       const empPermissions = permissions.filter((p: any) => String(p.pin || '').trim() === empPinStr);
 
       const scheduleMap: Record<number, { isWorking: boolean; startTime: string | null; endTime: string | null }> = {};
@@ -127,17 +128,12 @@ export async function GET(req: NextRequest) {
         });
       }
 
+      // Group log per tanggal
       const logsByDay: Record<string, any[]> = {};
       empLogs.forEach((log: any) => {
-        const logDateStr = String(log.date).trim();
-        let dayNumStr = '';
-        if (logDateStr.includes('-') || logDateStr.includes('/')) {
-          const sep = logDateStr.includes('-') ? '-' : '/';
-          const parts = logDateStr.split(sep);
-          dayNumStr = parts[0].length === 4 ? parts[2] : parts[0];
-        }
-        if (dayNumStr) {
-          const dayKey = String(parseInt(dayNumStr, 10));
+        const parsedD = parseFlexibleDate(log.date);
+        if (parsedD) {
+          const dayKey = String(parsedD.getDate());
           if (!logsByDay[dayKey]) logsByDay[dayKey] = [];
           logsByDay[dayKey].push(log);
         }
@@ -248,7 +244,7 @@ export async function GET(req: NextRequest) {
         const activePerm = permByDay[dayKey];
         const isPulangAwalPerm = activePerm && activePerm.type === 'Pulang Awal';
 
-        // --- BILA ADA IZIN PULANG AWAL ---
+        // --- 1. IZIN PULANG AWAL ---
         if (isPulangAwalPerm) {
           const inTime = earliestCheckInLog ? earliestCheckInLog.checkIn : '07:15';
           const outTime = activePerm.earlyLeaveTime || (latestCheckOutLog ? latestCheckOutLog.checkOut : '12:00');
@@ -276,7 +272,7 @@ export async function GET(req: NextRequest) {
             totalHadirGlobal++;
           }
         }
-        // --- BILA ADA IZIN FULL DAY ---
+        // --- 2. IZIN FULL DAY ---
         else if (activePerm) {
           const permTypeLower = activePerm.type.toLowerCase();
           const finalStatus = permTypeLower.includes('sakit') ? 'Sakit' : 'Izin';
@@ -285,11 +281,7 @@ export async function GET(req: NextRequest) {
           empIzinSakitCount++;
           totalIzinSakitGlobal++;
         }
-        // --- BILA LIBUR / WEEKEND ---
-        else if (isWeekendOrHoliday) {
-          dailyStatus[dayKey] = { status: 'Libur' };
-        }
-        // --- BILA PRESENSI NORMAL ---
+        // --- 3. PRESENSI NORMAL (Dahulukan Log jika Ada Scan di Hari Libur/Weekend) ---
         else if (earliestCheckInLog && minInMinutes !== 99999) {
           const isLate = minInMinutes > empLimitStartMin;
           const status = isLate ? 'Terlambat' : 'Hadir';
@@ -323,7 +315,11 @@ export async function GET(req: NextRequest) {
             totalHadirGlobal++;
           }
         }
-        // --- ALPHA ---
+        // --- 4. HARI LIBUR / WEEKEND (Tanpa Scan) ---
+        else if (isWeekendOrHoliday) {
+          dailyStatus[dayKey] = { status: 'Libur' };
+        }
+        // --- 5. ALPHA ---
         else {
           dailyStatus[dayKey] = { status: 'Alpha' };
           empAlphaCount++;
@@ -347,7 +343,9 @@ export async function GET(req: NextRequest) {
       };
     });
 
-    // 3. RETURN DATA + EDGE CACHING HEADER
+    // 3. RETURN DATA WITH DYNAMIC CACHE CONTROL
+    const isCurrentMonth = month === now.getMonth() + 1 && year === now.getFullYear();
+
     return NextResponse.json(
       {
         success: true,
@@ -365,8 +363,10 @@ export async function GET(req: NextRequest) {
       },
       {
         headers: {
-          // Cache di Edge selama 60 detik, revalidate otomatis di background hingga 5 menit
-          'Cache-Control': 'public, s-maxage=60, stale-while-revalidate=300',
+          // Jangan cache jika mengolah bulan berjalan (agar dashboard selalu real-time)
+          'Cache-Control': isCurrentMonth
+            ? 'no-store, max-age=0'
+            : 'public, s-maxage=86400, stale-while-revalidate=3600',
         },
       }
     );

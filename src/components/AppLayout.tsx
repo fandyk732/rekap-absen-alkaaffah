@@ -14,7 +14,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
   return (
     <div className="min-h-screen bg-background">
       <Sidebar collapsed={collapsed} onToggle={() => setCollapsed(!collapsed)} />
-      <Topbar sidebarCollapsed={collapsed} />
+      <Topbar />
       <main
         className={`pt-16 min-h-screen content-transition ${
           collapsed ? 'ml-16' : 'ml-60'
