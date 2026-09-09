@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import AppLayout from '@/components/AppLayout';
 import {
   Users,
@@ -42,7 +42,7 @@ interface EmployeeRank {
 
 export default function DashboardPage() {
   const [selectedMonth, setSelectedMonth] = useState<number>(new Date().getMonth() + 1);
-  const [selectedYear, setSelectedYear] = useState<number>(2026);
+  const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
   const [loading, setLoading] = useState(true);
   const [diligent, setDiligent] = useState<EmployeeRank[]>([]);
   const [punctual, setPunctual] = useState<EmployeeRank[]>([]);
@@ -74,16 +74,14 @@ export default function DashboardPage() {
     'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
   ];
 
-  const fetchDashboardStats = async () => {
+  // BUNGKUS DENGAN useCallback & HAPUS cache: 'no-store'
+  const fetchDashboardStats = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/dashboard/stats?month=${selectedMonth}&year=${selectedYear}`, {
-        cache: 'no-store',
-      });
+      const res = await fetch(`/api/dashboard/stats?month=${selectedMonth}&year=${selectedYear}`);
       const json = await res.json();
       if (json.success) {
         setData(json);
-        // Set ranking langsung dari response stats
         setDiligent(json.topDiligent || []);
         setPunctual(json.topPunctual || []);
       }
@@ -92,11 +90,11 @@ export default function DashboardPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [selectedMonth, selectedYear]);
 
   useEffect(() => {
     fetchDashboardStats();
-  }, [selectedMonth, selectedYear]);
+  }, [fetchDashboardStats]);
 
   const stats = data.stats;
 

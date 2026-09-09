@@ -1,10 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 
-export const dynamic = 'force-dynamic';
-export const revalidate = 0;
-
-// Helper untuk parse string tanggal fleksibel
+// Helper parse tanggal fleksibel
 function parseCustomDate(dateStr: string): Date | null {
   if (!dateStr) return null;
 
@@ -41,10 +38,14 @@ export async function GET(req: NextRequest) {
     const month = Number(searchParams.get('month')) || new Date().getMonth() + 1;
     const year = Number(searchParams.get('year')) || new Date().getFullYear();
 
-    // 1. Panggil API Matriks
+    const monthStr = String(month).padStart(2, '0');
+    const yearStr = String(year);
+
+    // 1. CALL INTERNAL API MATRIKS DENGAN OPTIMASI CACHE CDN
     const baseUrl = req.nextUrl.origin;
     const matriksRes = await fetch(`${baseUrl}/api/matriks?month=${month}&year=${year}`, {
-      cache: 'no-store',
+      // Izinkan Vercel mereuse cache dari API matriks jika ada
+      next: { revalidate: 60 },
       headers: {
         cookie: req.headers.get('cookie') ?? '',
       },
@@ -75,11 +76,7 @@ export async function GET(req: NextRequest) {
     const izinSakitPct = Math.round((totalIzinSakit / divider) * 100);
     const alphaPct = Math.round((totalAlpha / divider) * 100);
 
-    // ==========================================
-    // 2. OLAH TOP EMPLOYEES LANGSUNG DARI MATRIKS
-    // ==========================================
-
-    // A. Top 5 Guru Paling Rajin
+    // 2. OLAH TOP EMPLOYEES
     const topDiligent = [...matrixData]
       .map((emp) => ({
         id: emp.id || emp.pin,
@@ -90,7 +87,6 @@ export async function GET(req: NextRequest) {
       .sort((a, b) => b.totalHadir - a.totalHadir || a.totalTelat - b.totalTelat)
       .slice(0, 5);
 
-    // B. Top 5 Paling Disiplin Waktu
     const topPunctual = [...matrixData]
       .filter((emp) => (emp.summary?.hadir || 0) > 0)
       .map((emp) => ({
@@ -102,7 +98,6 @@ export async function GET(req: NextRequest) {
       .sort((a, b) => a.totalTelat - b.totalTelat || b.totalHadir - a.totalHadir)
       .slice(0, 5);
 
-    // C. Rekap Top Terlambat
     const topLateEmployees = [...matrixData]
       .filter((emp) => (emp.summary?.terlambat || 0) > 0)
       .map((emp) => ({
@@ -113,28 +108,31 @@ export async function GET(req: NextRequest) {
       .sort((a, b) => b.count - a.count)
       .slice(0, 5);
 
-    // ==========================================
-    // 3. REKAP TOP IZIN / SAKIT (FIXED QUERY & PARSING)
-    // ==========================================
-    let permissions: any[] = [];
-    try {
-      const allApprovedPermissions = await prisma.permission.findMany({
+    // 3. FETCH PERMISSION & PENDING IN PARALLEL (DATABASE OPTIMIZED)
+    const [allApprovedPermissions, pendingPermissionsCount] = await Promise.all([
+      prisma.permission.findMany({
         where: {
           status: { in: ['Approved', 'APPROVED', 'approved', 'Disetujui', 'DISETUJUI'] },
+          OR: [
+            { startDate: { contains: `${yearStr}-${monthStr}` } },
+            { startDate: { contains: `-${monthStr}-${yearStr}` } },
+            { createdAt: { gte: new Date(year, month - 1, 1) } },
+          ],
         },
-      });
+      }).catch(() => []),
+      prisma.permission.count({
+        where: { status: { in: ['Pending', 'PENDING', 'pending'] } },
+      }).catch(() => 0),
+    ]);
 
-      // Filter in-memory berdasarkan bulan & tahun agar presisi dengan tipe data string DB
-      permissions = allApprovedPermissions.filter((item: any) => {
-        const rawDate = item.startDate || item.createdAt;
-        const parsedDate = parseCustomDate(rawDate);
-        if (!parsedDate) return false;
+    // Filter in-memory presisi bulan & tahun
+    const permissions = allApprovedPermissions.filter((item: any) => {
+      const rawDate = item.startDate || item.createdAt;
+      const parsedDate = parseCustomDate(rawDate);
+      if (!parsedDate) return false;
 
-        return parsedDate.getMonth() + 1 === month && parsedDate.getFullYear() === year;
-      });
-    } catch (e) {
-      console.error('Error fetching permissions for stats:', e);
-    }
+      return parsedDate.getMonth() + 1 === month && parsedDate.getFullYear() === year;
+    });
 
     const permMap: Record<string, { name: string; pin: string; count: number; reasons: string[] }> = {};
 
@@ -155,34 +153,35 @@ export async function GET(req: NextRequest) {
 
     const totalEmployees = summary.totalEmployees || (await prisma.employee.count());
 
-    let pendingPermissionsCount = 0;
-    try {
-      pendingPermissionsCount = await prisma.permission.count({
-        where: { status: { in: ['Pending', 'PENDING', 'pending'] } },
-      });
-    } catch (e) {}
-
-    return NextResponse.json({
-      success: true,
-      stats: {
-        totalEmployees,
-        totalHadir,
-        totalTerlambat,
-        totalIzin: totalIzinSakit,
-        totalAlpha,
-        totalLogMasuk,
-        totalSlotKapasitas,
-        hadirPct,
-        terlambatPct,
-        izinSakitPct,
-        alphaPct,
-        pendingPermissionsCount,
+    // 4. RETURN RESPONSE DENGAN CACHE HEADER
+    return NextResponse.json(
+      {
+        success: true,
+        stats: {
+          totalEmployees,
+          totalHadir,
+          totalTerlambat,
+          totalIzin: totalIzinSakit,
+          totalAlpha,
+          totalLogMasuk,
+          totalSlotKapasitas,
+          hadirPct,
+          terlambatPct,
+          izinSakitPct,
+          alphaPct,
+          pendingPermissionsCount,
+        },
+        topDiligent,
+        topPunctual,
+        topLateEmployees,
+        topPermissionEmployees,
       },
-      topDiligent,
-      topPunctual,
-      topLateEmployees,
-      topPermissionEmployees,
-    });
+      {
+        headers: {
+          'Cache-Control': 'public, s-maxage=60, stale-while-revalidate=300',
+        },
+      }
+    );
   } catch (error: any) {
     console.error('[DASHBOARD STATS ERROR]', error);
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import AppLayout from '@/components/AppLayout';
 import { Calendar, Download, RefreshCw, Search, LogIn, LogOut } from 'lucide-react';
 import { toast } from 'sonner';
@@ -22,7 +22,8 @@ export default function MatriksKehadiranPage() {
     'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
   ];
 
-  const fetchMatrix = async () => {
+  // Menggunakan useCallback agar fungsi stabil & ramah re-render
+  const fetchMatrix = useCallback(async () => {
     setLoading(true);
     try {
       const res = await fetch(`/api/matriks?month=${selectedMonth}&year=${selectedYear}`);
@@ -40,13 +41,13 @@ export default function MatriksKehadiranPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [selectedMonth, selectedYear]);
 
   useEffect(() => {
     fetchMatrix();
-  }, [selectedMonth, selectedYear]);
+  }, [fetchMatrix]);
 
-  // Pengaman Array.isArray
+  // Pengaman Array.isArray untuk Filter
   const filteredData = Array.isArray(matrixData)
     ? matrixData.filter(
         (emp) =>
@@ -55,7 +56,7 @@ export default function MatriksKehadiranPage() {
       )
     : [];
 
-  // FUNGSI EKSPOR EXCEL (DENGAN JAM MASUK & PULANG)
+  // FUNGSI EKSPOR EXCEL (SUDAH DIOPTIMASI)
   const exportToExcel = async () => {
     if (filteredData.length === 0) {
       toast.error('Tidak ada data untuk diekspor!');
@@ -112,8 +113,6 @@ export default function MatriksKehadiranPage() {
 
       // 3. Menambahkan Data Pegawai
       filteredData.forEach((emp, index) => {
-        let totalH = 0, totalT = 0, totalI = 0, totalS = 0, totalA = 0;
-
         const rowValues: any[] = [
           index + 1,
           emp.pin || '-',
@@ -124,37 +123,23 @@ export default function MatriksKehadiranPage() {
         for (let day = 1; day <= daysInMonth; day++) {
           const statusObj = emp.dailyStatus?.[String(day)];
           let cellText = '-';
-          let code = '-'; // DEKLARASI DIBUAT DI SINI (BERESIN ERROR)
 
           if (statusObj) {
             switch (statusObj.status) {
               case 'Hadir':
-                totalH++;
-                code = 'H';
-                const inTimeH = statusObj.checkIn || '-';
-                const outTimeH = statusObj.checkOut || '?';
-                cellText = `M: ${inTimeH}\nP: ${outTimeH}`;
+              case 'Terlambat': {
+                const inTime = statusObj.checkIn || '-';
+                const outTime = statusObj.checkOut || '?';
+                cellText = `M: ${inTime}\nP: ${outTime}`;
                 break;
-              case 'Terlambat':
-                totalT++;
-                code = 'T';
-                const inTimeT = statusObj.checkIn || '-';
-                const outTimeT = statusObj.checkOut || '?';
-                cellText = `M: ${inTimeT}\nP: ${outTimeT}`;
-                break;
+              }
               case 'Izin':
-                code = 'I';
-                totalI++;
                 cellText = 'I';
                 break;
               case 'Sakit':
-                code = 'S';
-                totalS++;
                 cellText = 'S';
                 break;
               case 'Alpha':
-                code = 'A';
-                totalA++;
                 cellText = 'A';
                 break;
             }
@@ -162,7 +147,14 @@ export default function MatriksKehadiranPage() {
           rowValues.push(cellText);
         }
 
-        rowValues.push(totalH, totalT, totalI, totalS, totalA);
+        // Ambil akumulasi summary langsung dari kalkulasi akurat backend
+        rowValues.push(
+          emp.summary?.hadir || 0,
+          emp.summary?.terlambat || 0,
+          emp.summary?.izinSakit || 0,
+          0, // S
+          emp.summary?.alpha || 0
+        );
 
         const dataRow = worksheet.addRow(rowValues);
         dataRow.height = 32;
@@ -287,7 +279,7 @@ export default function MatriksKehadiranPage() {
               <select
                 value={selectedMonth}
                 onChange={(e) => setSelectedMonth(Number(e.target.value))}
-                className="bg-transparent text-sm font-medium text-slate-700 focus:outline-none"
+                className="bg-transparent text-sm font-medium text-slate-700 focus:outline-none cursor-pointer"
               >
                 {monthNames.map((m, idx) => (
                   <option key={idx} value={idx + 1}>{m}</option>
@@ -296,7 +288,7 @@ export default function MatriksKehadiranPage() {
               <select
                 value={selectedYear}
                 onChange={(e) => setSelectedYear(Number(e.target.value))}
-                className="bg-transparent text-sm font-medium text-slate-700 focus:outline-none border-l pl-2 border-slate-300"
+                className="bg-transparent text-sm font-medium text-slate-700 focus:outline-none border-l pl-2 border-slate-300 cursor-pointer"
               >
                 <option value={2025}>2025</option>
                 <option value={2026}>2026</option>
@@ -365,8 +357,6 @@ export default function MatriksKehadiranPage() {
                   </tr>
                 ) : (
                   filteredData.map((emp) => {
-                    let totalH = 0, totalT = 0, totalI = 0, totalS = 0, totalA = 0;
-
                     return (
                       <tr key={emp.id || emp.pin} className="hover:bg-slate-50/80 transition-colors">
                         <td className="py-2.5 px-3 sticky left-0 bg-white border-r border-slate-200 z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">
@@ -376,38 +366,11 @@ export default function MatriksKehadiranPage() {
 
                         {Array.from({ length: daysInMonth }, (_, i) => i + 1).map((d) => {
                           const cellData = emp.dailyStatus?.[String(d)];
-                          let code = '-';
-                          let title = 'Libur / Tidak ada log';
-
-                          if (cellData) {
-                            switch (cellData.status) {
-                              case 'Hadir':
-                                code = 'H';
-                                totalH++;
-                                break;
-                              case 'Terlambat':
-                                code = 'T';
-                                totalT++;
-                                break;
-                              case 'Izin':
-                                code = 'I';
-                                totalI++;
-                                break;
-                              case 'Sakit':
-                                code = 'S';
-                                totalS++;
-                                break;
-                              case 'Alpha':
-                                code = 'A';
-                                totalA++;
-                                break;
-                            }
-                          }
 
                           return (
                             <td key={d} className="py-1 px-0.5 text-center border-r border-slate-100 vertical-middle relative group">
                               {!cellData || cellData.status === 'Libur' ? (
-                                <span title={title} className="text-[10px] text-slate-300 select-none">-</span>
+                                <span title="Libur / Tidak ada log" className="text-[10px] text-slate-300 select-none">-</span>
                               ) : cellData.status === 'Alpha' ? (
                                 <span title="Alpha (Tanpa Keterangan)" className="inline-flex items-center justify-center w-6 h-6 rounded bg-rose-100 text-rose-800 font-bold text-[10px]">
                                   A
@@ -468,11 +431,12 @@ export default function MatriksKehadiranPage() {
                           );
                         })}
 
-                        <td className="py-2 px-1 text-center font-bold text-emerald-700 bg-emerald-50/40 border-l border-slate-200">{totalH}</td>
-                        <td className="py-2 px-1 text-center font-bold text-amber-700 bg-amber-50/40 border-l border-slate-200">{totalT}</td>
-                        <td className="py-2 px-1 text-center font-bold text-blue-700 bg-blue-50/40 border-l border-slate-200">{totalI}</td>
-                        <td className="py-2 px-1 text-center font-bold text-purple-700 bg-purple-50/40 border-l border-slate-200">{totalS}</td>
-                        <td className="py-2 px-1 text-center font-bold text-rose-700 bg-rose-50/40 border-l border-slate-200">{totalA}</td>
+                        {/* Mengambil summary persis dari kalkulasi API Backend */}
+                        <td className="py-2 px-1 text-center font-bold text-emerald-700 bg-emerald-50/40 border-l border-slate-200">{emp.summary?.hadir || 0}</td>
+                        <td className="py-2 px-1 text-center font-bold text-amber-700 bg-amber-50/40 border-l border-slate-200">{emp.summary?.terlambat || 0}</td>
+                        <td className="py-2 px-1 text-center font-bold text-blue-700 bg-blue-50/40 border-l border-slate-200">{emp.summary?.izinSakit || 0}</td>
+                        <td className="py-2 px-1 text-center font-bold text-purple-700 bg-purple-50/40 border-l border-slate-200">0</td>
+                        <td className="py-2 px-1 text-center font-bold text-rose-700 bg-rose-50/40 border-l border-slate-200">{emp.summary?.alpha || 0}</td>
                       </tr>
                     );
                   })

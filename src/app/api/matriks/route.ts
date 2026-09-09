@@ -64,50 +64,45 @@ export async function GET(req: NextRequest) {
     const yearStr = String(year);
     const daysInMonth = new Date(year, month, 0).getDate();
 
-    // 1. AMBIL SETTING GLOBAL (MASUK & PULANG)
+    // 1. FETCH DATA SECARA PARALEL (PROMISE.ALL) UNTUK KECEPATAN MAKSIMAL
+    const [settingRecord, employees, monthlyLogs, holidays, permissions] = await Promise.all([
+      prisma.setting.findFirst().catch(() => null),
+      prisma.employee.findMany({
+        include: { schedules: true },
+        orderBy: { name: 'asc' },
+      }),
+      // Hanya ambil log absensi untuk bulan & tahun yang diminta
+      prisma.attendanceLog.findMany({
+        where: {
+          OR: [
+            { date: { contains: `${yearStr}-${monthStr}` } },
+            { date: { contains: `-${monthStr}-${yearStr}` } },
+          ],
+        },
+      }).catch(() => []),
+      prisma.holiday.findMany().catch(() => []),
+      // Hanya ambil izin yang di-approve
+      prisma.permission.findMany({
+        where: { status: { in: ['Approved', 'APPROVED', 'approved', 'Disetujui', 'DISETUJUI'] } },
+      }).catch(() => []),
+    ]);
+
+    // Parse Setting Global
     let defaultStartMin = 435; // 07:15
     let defaultEndMin = 840;   // 14:00
     let limitTimeStr = '07:15';
     let endTimeStr = '14:00';
 
-    try {
-      const settingRecord = (await prisma.setting.findFirst()) as any;
-      if (settingRecord?.workStartTime) {
-        limitTimeStr = settingRecord.workStartTime;
-        const parsed = timeToMinutes(limitTimeStr);
-        if (parsed !== null) defaultStartMin = parsed;
-      }
-      if (settingRecord?.workEndTime) {
-        endTimeStr = settingRecord.workEndTime;
-        const parsed = timeToMinutes(endTimeStr);
-        if (parsed !== null) defaultEndMin = parsed;
-      }
-    } catch (e) {
-      console.warn('[MATRIKS] Warning: Gagal membaca settings DB');
+    if (settingRecord?.workStartTime) {
+      limitTimeStr = settingRecord.workStartTime;
+      const parsed = timeToMinutes(limitTimeStr);
+      if (parsed !== null) defaultStartMin = parsed;
     }
-
-    // 2. FETCH DATA
-    const employees = await prisma.employee.findMany({
-      include: { schedules: true },
-      orderBy: { name: 'asc' },
-    });
-    const allLogs = await prisma.attendanceLog.findMany();
-    const holidays = await prisma.holiday.findMany();
-
-    let permissions: any[] = [];
-    try {
-      permissions = await prisma.permission.findMany({
-        where: { status: { in: ['Approved', 'APPROVED', 'approved', 'Disetujui', 'DISETUJUI'] } },
-      });
-    } catch (e) {
-      console.warn('[MATRIKS] Warning: Gagal membaca permission DB');
+    if (settingRecord?.workEndTime) {
+      endTimeStr = settingRecord.workEndTime;
+      const parsed = timeToMinutes(endTimeStr);
+      if (parsed !== null) defaultEndMin = parsed;
     }
-
-    const monthlyLogs = allLogs.filter((a: any) => {
-      if (!a.date) return false;
-      const dStr = String(a.date);
-      return dStr.includes(`${yearStr}-${monthStr}`) || dStr.includes(`-${monthStr}-${yearStr}`);
-    });
 
     let totalHadirGlobal = 0;
     let totalTerlambatGlobal = 0;
@@ -115,7 +110,7 @@ export async function GET(req: NextRequest) {
     let totalIzinSakitGlobal = 0;
     let totalAlphaGlobal = 0;
 
-    // 3. OLAH MATRIKS PER PEGAWAI
+    // 2. OLAH MATRIKS PER PEGAWAI
     const matrixData = employees.map((emp: any) => {
       const empPinStr = String(emp.pin).trim();
       const empLogs = monthlyLogs.filter((l: any) => String(l.pin || '').trim() === empPinStr);
@@ -148,7 +143,7 @@ export async function GET(req: NextRequest) {
         }
       });
 
-      // Map Izin per Hari berdasarkan Tipe
+      // Map Izin per Hari
       const permByDay: Record<string, { type: string; earlyLeaveTime?: string }> = {};
       empPermissions.forEach((p: any) => {
         const startDate = parseFlexibleDate(p.startDate);
@@ -223,7 +218,7 @@ export async function GET(req: NextRequest) {
 
         const isWeekendOrHoliday = dateObj.getDay() === 0 || isHolidaySetting || isScheduledOff;
 
-        // Cari CheckIn paling awal dan CheckOut paling akhir dari Log Mesin Presensi
+        // Cari CheckIn paling awal dan CheckOut paling akhir
         let earliestCheckInLog: any = null;
         let latestCheckOutLog: any = null;
         let minInMinutes = 99999;
@@ -266,7 +261,7 @@ export async function GET(req: NextRequest) {
             status,
             checkIn: inTime,
             checkOut: outTime,
-            isEarlyLeave: true, // Memicu warna Orange PC di Matriks
+            isEarlyLeave: true,
             noCheckout: false,
           };
 
@@ -281,7 +276,7 @@ export async function GET(req: NextRequest) {
             totalHadirGlobal++;
           }
         }
-        // --- BILA ADA IZIN FULL DAY (Izin/Sakit/Cuti) ---
+        // --- BILA ADA IZIN FULL DAY ---
         else if (activePerm) {
           const permTypeLower = activePerm.type.toLowerCase();
           const finalStatus = permTypeLower.includes('sakit') ? 'Sakit' : 'Izin';
@@ -352,20 +347,29 @@ export async function GET(req: NextRequest) {
       };
     });
 
-    return NextResponse.json({
-      success: true,
-      limitTimeUsed: limitTimeStr,
-      endTimeUsed: endTimeStr,
-      summary: {
-        totalEmployees: employees.length,
-        totalHadir: totalHadirGlobal,
-        totalTerlambat: totalTerlambatGlobal,
-        totalPulangCepat: totalPulangCepatGlobal,
-        totalIzinSakit: totalIzinSakitGlobal,
-        totalAlpha: totalAlphaGlobal,
+    // 3. RETURN DATA + EDGE CACHING HEADER
+    return NextResponse.json(
+      {
+        success: true,
+        limitTimeUsed: limitTimeStr,
+        endTimeUsed: endTimeStr,
+        summary: {
+          totalEmployees: employees.length,
+          totalHadir: totalHadirGlobal,
+          totalTerlambat: totalTerlambatGlobal,
+          totalPulangCepat: totalPulangCepatGlobal,
+          totalIzinSakit: totalIzinSakitGlobal,
+          totalAlpha: totalAlphaGlobal,
+        },
+        data: matrixData,
       },
-      data: matrixData,
-    });
+      {
+        headers: {
+          // Cache di Edge selama 60 detik, revalidate otomatis di background hingga 5 menit
+          'Cache-Control': 'public, s-maxage=60, stale-while-revalidate=300',
+        },
+      }
+    );
   } catch (error: any) {
     console.error('[MATRIKS ERROR]', error);
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
