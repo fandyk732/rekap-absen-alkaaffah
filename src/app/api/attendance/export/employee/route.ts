@@ -71,8 +71,9 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ success: false, error: 'Pegawai tidak ditemukan.' }, { status: 404 });
     }
 
-    // Default Jam Masuk dari Global Setting
+    // Default Jam Kerja dari Global Setting
     const defaultGlobalWorkStart = globalSetting?.workStartTime || '07:15';
+    const defaultGlobalWorkEnd = globalSetting?.workEndTime || '14:00';
 
     const formattedMonth = String(month).padStart(2, '0');
 
@@ -111,14 +112,14 @@ export async function GET(req: NextRequest) {
       cell.alignment = { horizontal: 'center', vertical: 'middle' };
     });
 
-    // Map Schedule Individual
+    // Map Schedule Individual (Include startTime & endTime)
     const scheduleMap: Record<number, { isWorking: boolean; startTime?: string; endTime?: string }> = {};
     if (employee.schedules && Array.isArray(employee.schedules)) {
       employee.schedules.forEach((s: any) => {
         scheduleMap[s.dayOfWeek] = {
           isWorking: s.isWorking,
-          startTime: s.startTime,
-          endTime: s.endTime,
+          startTime: s.startTime || '07:15',
+          endTime: s.endTime || '14:00',
         };
       });
     }
@@ -176,8 +177,9 @@ export async function GET(req: NextRequest) {
       const empSched = scheduleMap[dayOfWeek];
       const isScheduledOff = empSched ? !empSched.isWorking : dayOfWeek === 0;
 
-      // HIRARKI JAM MASUK: Individual Override -> Global Setting Fallback
+      // HIRARKI JAM KERJA: Individual Override -> Global Setting Fallback
       const targetStartTime = empSched?.startTime || defaultGlobalWorkStart;
+      const targetEndTime = empSched?.endTime || defaultGlobalWorkEnd;
 
       const hasScan = Boolean(record && isValidTime(record.checkIn));
 

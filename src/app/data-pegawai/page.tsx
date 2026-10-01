@@ -97,7 +97,7 @@ export default function DataPegawaiPage() {
           dayName: day.label,
           isWorking: found ? found.isWorking : day.id !== 0,
           startTime: found?.startTime || '07:15',
-          endTime: found?.endTime || '14:00',
+          endTime: found?.endTime || '14:00', // ✅ FIXED: Menggunakan found?.endTime
         };
       });
 

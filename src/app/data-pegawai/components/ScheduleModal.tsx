@@ -43,7 +43,7 @@ export default function ScheduleModal({
               <div className="flex items-center gap-3">
                 <input
                   type="checkbox"
-                  checked={s.isWorking}
+                  checked={Boolean(s.isWorking)}
                   onChange={(e) => {
                     const updated = [...schedules];
                     updated[idx].isWorking = e.target.checked;
@@ -63,7 +63,7 @@ export default function ScheduleModal({
                     <span className="text-[10px] text-slate-400">Masuk:</span>
                     <input
                       type="text"
-                      value={s.startTime}
+                      value={s.startTime ?? '07:15'}
                       onChange={(e) => {
                         const updated = [...schedules];
                         updated[idx].startTime = e.target.value;
@@ -79,7 +79,7 @@ export default function ScheduleModal({
                     <span className="text-[10px] text-slate-400">Pulang:</span>
                     <input
                       type="text"
-                      value={s.endTime}
+                      value={s.endTime ?? '14:00'}
                       onChange={(e) => {
                         const updated = [...schedules];
                         updated[idx].endTime = e.target.value;

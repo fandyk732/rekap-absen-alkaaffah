@@ -44,12 +44,14 @@ export async function POST(req: NextRequest) {
         update: {
           isWorking: Boolean(item.isWorking),
           startTime: item.startTime || '07:15',
+          endTime: item.endTime || '14:00',
         },
         create: {
           employeeId,
           dayOfWeek: Number(item.dayOfWeek),
           isWorking: Boolean(item.isWorking),
           startTime: item.startTime || '07:15',
+          endTime: item.endTime || '14:00',
         },
       });
     }

@@ -95,6 +95,10 @@ export default function EmployeeTable({
                       <Calendar className="w-3.5 h-3.5" />
                       Jadwal
                     </button>
+                    
+                    {/* Tombol Export Excel Individual */}
+                    <ExportEmployeeModal pin={emp.pin} name={emp.name} />
+
                     <button
                       onClick={() => onEdit(emp)}
                       className="p-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition"
@@ -109,12 +113,6 @@ export default function EmployeeTable({
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
-
-                     <td className="px-4 py-3 flex items-center gap-2">
-                    {/* Tombol Export Excel Individual */}
-                    <ExportEmployeeModal pin={emp.pin} name={emp.name} />
-                    </td>    
-
                   </div>
                 </td>
               </tr>
