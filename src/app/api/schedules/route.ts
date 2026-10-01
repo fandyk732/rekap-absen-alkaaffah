@@ -22,7 +22,7 @@ export async function GET(req: NextRequest) {
   }
 }
 
-// POST: Simpan / Batch Update Jadwal Mengajar Pegawai
+// POST: Simpan / Batch Update Jadwal Mengajar Pegawai (SUPER FAST WITH $TRANSACTION)
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
@@ -32,29 +32,31 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, error: 'Data jadwal tidak valid.' }, { status: 400 });
     }
 
-    // Upsert / Simpan tiap hari (0 = Minggu s/d 6 = Sabtu)
-    for (const item of schedules) {
-      await prisma.workSchedule.upsert({
-        where: {
-          employeeId_dayOfWeek: {
+    // ✅ EKSEKUSI BATCH DALAM 1 TRANSAKSI TUNGGAL
+    await prisma.$transaction(
+      schedules.map((item: any) =>
+        prisma.workSchedule.upsert({
+          where: {
+            employeeId_dayOfWeek: {
+              employeeId,
+              dayOfWeek: Number(item.dayOfWeek),
+            },
+          },
+          update: {
+            isWorking: Boolean(item.isWorking),
+            startTime: item.startTime || '07:15',
+            endTime: item.endTime || '14:00',
+          },
+          create: {
             employeeId,
             dayOfWeek: Number(item.dayOfWeek),
+            isWorking: Boolean(item.isWorking),
+            startTime: item.startTime || '07:15',
+            endTime: item.endTime || '14:00',
           },
-        },
-        update: {
-          isWorking: Boolean(item.isWorking),
-          startTime: item.startTime || '07:15',
-          endTime: item.endTime || '14:00',
-        },
-        create: {
-          employeeId,
-          dayOfWeek: Number(item.dayOfWeek),
-          isWorking: Boolean(item.isWorking),
-          startTime: item.startTime || '07:15',
-          endTime: item.endTime || '14:00',
-        },
-      });
-    }
+        })
+      )
+    );
 
     return NextResponse.json({ success: true, message: 'Jadwal berhasil diperbarui!' });
   } catch (error: any) {

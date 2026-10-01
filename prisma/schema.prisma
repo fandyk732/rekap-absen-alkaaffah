@@ -29,18 +29,19 @@ model AttendanceLog {
   pin              String
   name             String
   date             String   // Format Standar: DD-MM-YYYY atau YYYY-MM-DD
-  checkIn          String?  // <-- DIUBAH JADI OPTIONAL (agar tidak error jika belum tap)
-  checkOut         String?  // <-- DIUBAH JADI OPTIONAL (agar tidak error jika belum tap)
+  checkIn          String?  
+  checkOut         String?  
   status           String
   isEarlyLeave     Boolean  @default(false)
   earlyLeaveReason String?
-  flagColor        String?  @default("green") // <-- DIUBAH JADI OPTIONAL
+  flagColor        String?  @default("green")
   createdAt        DateTime @default(now())
 
   employee Employee? @relation(fields: [pin], references: [pin], onDelete: Cascade)
 
   @@index([pin])
   @@index([date])
+  @@index([pin, date]) // 🚀 OPTIMASI: Composite index untuk filter log pegawai per tanggal
 }
 
 model Permission {
@@ -58,6 +59,7 @@ model Permission {
   employee Employee? @relation(fields: [pin], references: [pin], onDelete: Cascade)
 
   @@index([pin])
+  @@index([startDate, endDate]) // 🚀 OPTIMASI: Mempercepat cek rentang tanggal izin
 }
 
 model Setting {
