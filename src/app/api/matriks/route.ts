@@ -33,6 +33,7 @@ const timeToMinutes = (timeStr: string): number | null => {
   return null;
 };
 
+// Parser tanggal fleksibel (Akurat membaca DD-MM-YYYY dari DB Neon)
 const parseFlexibleDate = (dateStr: string): Date | null => {
   if (!dateStr) return null;
   const str = String(dateStr).trim();
@@ -41,9 +42,11 @@ const parseFlexibleDate = (dateStr: string): Date | null => {
     const sep = str.includes('-') ? '-' : '/';
     const parts = str.split(sep);
     if (parts.length === 3) {
-      if (parts[0].length === 2 && parts[2].length === 4) {
+      // Format DD-MM-YYYY atau DD/MM/YYYY (Misal: 22-09-2026)
+      if (parts[0].length <= 2 && parts[2].length === 4) {
         return new Date(parseInt(parts[2], 10), parseInt(parts[1], 10) - 1, parseInt(parts[0], 10));
       }
+      // Format YYYY-MM-DD atau YYYY/MM/DD
       if (parts[0].length === 4) {
         return new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
       }
@@ -53,6 +56,18 @@ const parseFlexibleDate = (dateStr: string): Date | null => {
   const d = new Date(str);
   return isNaN(d.getTime()) ? null : d;
 };
+
+// Helper kategori perizinan
+function getPermissionCategory(typeStr: string | null | undefined): 'S' | 'C' | 'I' | 'PULANG_AWAL' {
+  if (!typeStr) return 'I';
+  const clean = typeStr.trim().toLowerCase();
+
+  if (clean.includes('pulang')) return 'PULANG_AWAL';
+  if (clean === 's' || clean === 'sk' || clean.includes('sakit') || clean.includes('sick')) return 'S';
+  if (clean === 'c' || clean.includes('cuti') || clean.includes('leave')) return 'C';
+  
+  return 'I';
+}
 
 export async function GET(req: NextRequest) {
   try {
@@ -65,15 +80,14 @@ export async function GET(req: NextRequest) {
     const yearStr = String(year);
     const daysInMonth = new Date(year, month, 0).getDate();
 
-    // 1. FETCH DATA PARALEL (Hanya ambil pegawai Aktif)
+    // 1. FETCH DATA PARALEL (Hanya pegawai Aktif)
     const [settingRecord, employees, monthlyLogs, holidays, permissions] = await Promise.all([
       prisma.setting.findFirst().catch(() => null),
       prisma.employee.findMany({
-        where: { status: 'Aktif' }, // 🔥 Filter hanya pegawai aktif
+        where: { status: 'Aktif' },
         include: { schedules: true },
         orderBy: { name: 'asc' },
       }),
-      // 🔥 Fetch semua log tanpa filter string contains kaku, atau gunakan regex
       prisma.attendanceLog.findMany().catch(() => []),
       prisma.holiday.findMany().catch(() => []),
       prisma.permission.findMany({
@@ -101,10 +115,12 @@ export async function GET(req: NextRequest) {
     let totalHadirGlobal = 0;
     let totalTerlambatGlobal = 0;
     let totalPulangCepatGlobal = 0;
-    let totalIzinSakitGlobal = 0;
+    let totalIzinGlobal = 0;
+    let totalSakitGlobal = 0;
+    let totalCutiGlobal = 0;
     let totalAlphaGlobal = 0;
 
-    // Filter log hanya untuk bulan & tahun yang bersangkutan (fleksibel)
+    // Filter log bulan & tahun berjalan
     const filteredMonthlyLogs = monthlyLogs.filter((log: any) => {
       const parsedD = parseFlexibleDate(log.date);
       if (!parsedD) return false;
@@ -163,7 +179,8 @@ export async function GET(req: NextRequest) {
       const dailyStatus: Record<
         string,
         {
-          status: 'Hadir' | 'Terlambat' | 'Izin' | 'Sakit' | 'Alpha' | 'Libur';
+          status: 'Hadir' | 'Terlambat' | 'Izin' | 'Sakit' | 'Cuti' | 'Alpha' | 'Libur';
+          code?: string;
           checkIn?: string;
           checkOut?: string;
           isEarlyLeave?: boolean;
@@ -174,7 +191,9 @@ export async function GET(req: NextRequest) {
       let empHadirCount = 0;
       let empTerlambatCount = 0;
       let empPulangCepatCount = 0;
-      let empIzinSakitCount = 0;
+      let empIzinCount = 0;
+      let empSakitCount = 0;
+      let empCutiCount = 0;
       let empAlphaCount = 0;
 
       for (let day = 1; day <= daysInMonth; day++) {
@@ -242,12 +261,12 @@ export async function GET(req: NextRequest) {
         });
 
         const activePerm = permByDay[dayKey];
-        const isPulangAwalPerm = activePerm && activePerm.type === 'Pulang Awal';
+        const permCategory = activePerm ? getPermissionCategory(activePerm.type) : null;
 
         // --- 1. IZIN PULANG AWAL ---
-        if (isPulangAwalPerm) {
+        if (permCategory === 'PULANG_AWAL') {
           const inTime = earliestCheckInLog ? earliestCheckInLog.checkIn : '07:15';
-          const outTime = activePerm.earlyLeaveTime || (latestCheckOutLog ? latestCheckOutLog.checkOut : '12:00');
+          const outTime = activePerm?.earlyLeaveTime || (latestCheckOutLog ? latestCheckOutLog.checkOut : '12:00');
 
           const checkInMin = timeToMinutes(inTime) || empLimitStartMin;
           const isLate = checkInMin > empLimitStartMin;
@@ -255,6 +274,7 @@ export async function GET(req: NextRequest) {
 
           dailyStatus[dayKey] = {
             status,
+            code: isLate ? 'T' : 'H',
             checkIn: inTime,
             checkOut: outTime,
             isEarlyLeave: true,
@@ -272,16 +292,23 @@ export async function GET(req: NextRequest) {
             totalHadirGlobal++;
           }
         }
-        // --- 2. IZIN FULL DAY ---
+        // --- 2. PERIZINAN FULL DAY (SAKIT / CUTI / IZIN) ---
         else if (activePerm) {
-          const permTypeLower = activePerm.type.toLowerCase();
-          const finalStatus = permTypeLower.includes('sakit') ? 'Sakit' : 'Izin';
-
-          dailyStatus[dayKey] = { status: finalStatus };
-          empIzinSakitCount++;
-          totalIzinSakitGlobal++;
+          if (permCategory === 'S') {
+            dailyStatus[dayKey] = { status: 'Sakit', code: 'S' };
+            empSakitCount++;
+            totalSakitGlobal++;
+          } else if (permCategory === 'C') {
+            dailyStatus[dayKey] = { status: 'Cuti', code: 'C' };
+            empCutiCount++;
+            totalCutiGlobal++;
+          } else {
+            dailyStatus[dayKey] = { status: 'Izin', code: 'I' };
+            empIzinCount++;
+            totalIzinGlobal++;
+          }
         }
-        // --- 3. PRESENSI NORMAL (Dahulukan Log jika Ada Scan di Hari Libur/Weekend) ---
+        // --- 3. PRESENSI NORMAL ---
         else if (earliestCheckInLog && minInMinutes !== 99999) {
           const isLate = minInMinutes > empLimitStartMin;
           const status = isLate ? 'Terlambat' : 'Hadir';
@@ -301,6 +328,7 @@ export async function GET(req: NextRequest) {
 
           dailyStatus[dayKey] = {
             status,
+            code: isLate ? 'T' : 'H',
             checkIn: earliestCheckInLog.checkIn,
             checkOut: latestCheckOutLog ? latestCheckOutLog.checkOut : '-',
             isEarlyLeave,
@@ -317,11 +345,11 @@ export async function GET(req: NextRequest) {
         }
         // --- 4. HARI LIBUR / WEEKEND (Tanpa Scan) ---
         else if (isWeekendOrHoliday) {
-          dailyStatus[dayKey] = { status: 'Libur' };
+          dailyStatus[dayKey] = { status: 'Libur', code: 'L' };
         }
         // --- 5. ALPHA ---
         else {
-          dailyStatus[dayKey] = { status: 'Alpha' };
+          dailyStatus[dayKey] = { status: 'Alpha', code: 'A' };
           empAlphaCount++;
           totalAlphaGlobal++;
         }
@@ -333,13 +361,19 @@ export async function GET(req: NextRequest) {
         name: emp.name,
         role: emp.role || 'Pegawai',
         summary: {
+          hadirTepat: empHadirCount,
           hadir: empHadirCount,
           terlambat: empTerlambatCount,
           pulangCepat: empPulangCepatCount,
-          izinSakit: empIzinSakitCount,
+          izin: empIzinCount,
+          sakit: empSakitCount,
+          cuti: empCutiCount,
+          izinSakit: empIzinCount + empSakitCount + empCutiCount,
+          mangkir: empAlphaCount,
           alpha: empAlphaCount,
         },
         dailyStatus,
+        days: dailyStatus,
       };
     });
 
@@ -356,14 +390,16 @@ export async function GET(req: NextRequest) {
           totalHadir: totalHadirGlobal,
           totalTerlambat: totalTerlambatGlobal,
           totalPulangCepat: totalPulangCepatGlobal,
-          totalIzinSakit: totalIzinSakitGlobal,
+          totalIzin: totalIzinGlobal,
+          totalSakit: totalSakitGlobal,
+          totalCuti: totalCutiGlobal,
+          totalIzinSakit: totalIzinGlobal + totalSakitGlobal + totalCutiGlobal,
           totalAlpha: totalAlphaGlobal,
         },
         data: matrixData,
       },
       {
         headers: {
-          // Jangan cache jika mengolah bulan berjalan (agar dashboard selalu real-time)
           'Cache-Control': isCurrentMonth
             ? 'no-store, max-age=0'
             : 'public, s-maxage=86400, stale-while-revalidate=3600',

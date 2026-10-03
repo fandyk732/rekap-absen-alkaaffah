@@ -58,29 +58,33 @@ export default function AttendanceMatrixTable({
                   </td>
 
                   {Array.from({ length: daysInMonth }, (_, i) => i + 1).map((d) => {
-                    const cellData = emp.dailyStatus?.[String(d)];
+                    const cellData = emp.dailyStatus?.[String(d)] || emp.days?.[d] || emp.days?.[String(d)];
 
                     return (
                       <td key={d} className="py-1 px-0.5 text-center border-r border-slate-100 vertical-middle relative group">
-                        {!cellData || cellData.status === 'Libur' ? (
+                        {!cellData || cellData.status === 'Libur' || cellData.code === 'L' ? (
                           <span title="Libur / Tidak ada log" className="text-[10px] text-slate-300 select-none">-</span>
-                        ) : cellData.status === 'Alpha' ? (
+                        ) : cellData.status === 'Alpha' || cellData.code === 'A' ? (
                           <span title="Alpha (Tanpa Keterangan)" className="inline-flex items-center justify-center w-6 h-6 rounded bg-rose-100 text-rose-800 font-bold text-[10px]">
                             A
                           </span>
-                        ) : cellData.status === 'Izin' || cellData.status === 'Sakit' ? (
+                        ) : cellData.status === 'Izin' || cellData.status === 'Sakit' || cellData.code === 'I' || cellData.code === 'S' || cellData.code === 'C' ? (
                           <span
-                            title={cellData.status === 'Sakit' ? 'Sakit' : 'Izin'}
+                            title={cellData.status || (cellData.code === 'S' ? 'Sakit' : 'Izin')}
                             className={`inline-flex items-center justify-center w-6 h-6 rounded font-bold text-[10px] ${
-                              cellData.status === 'Sakit' ? 'bg-purple-100 text-purple-800' : 'bg-blue-100 text-blue-800'
+                              cellData.code === 'S' || cellData.status === 'Sakit' 
+                                ? 'bg-purple-100 text-purple-800' 
+                                : cellData.code === 'C' || cellData.status === 'Cuti'
+                                ? 'bg-indigo-100 text-indigo-800'
+                                : 'bg-blue-100 text-blue-800'
                             }`}
                           >
-                            {cellData.status === 'Sakit' ? 'S' : 'I'}
+                            {cellData.code || (cellData.status === 'Sakit' ? 'S' : cellData.status === 'Cuti' ? 'C' : 'I')}
                           </span>
                         ) : (
                           <div
                             className={`p-1 rounded flex flex-col items-center justify-center gap-0.5 border ${
-                              cellData.status === 'Terlambat'
+                              cellData.status === 'Terlambat' || cellData.code === 'T'
                                 ? 'bg-amber-50 border-amber-200 text-amber-800'
                                 : 'bg-emerald-50 border-emerald-100 text-emerald-800'
                             }`}
@@ -106,10 +110,10 @@ export default function AttendanceMatrixTable({
                         )}
 
                         {/* Tooltip Hover Detail */}
-                        {cellData && cellData.status !== 'Libur' && (
+                        {cellData && cellData.status !== 'Libur' && cellData.code !== 'L' && (
                           <div className="hidden group-hover:block absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 w-32 bg-slate-900 text-white text-[10px] rounded-md p-2 shadow-xl z-30 pointer-events-none text-left">
                             <p className="font-bold border-b border-slate-700 pb-0.5 mb-1 text-slate-300">
-                              Tgl {d} - {cellData.status}
+                              Tgl {d} - {cellData.status || cellData.code}
                             </p>
                             {cellData.checkIn && <p className="text-emerald-400">Masuk: {cellData.checkIn}</p>}
                             {cellData.checkOut && <p className="text-blue-300">Pulang: {cellData.checkOut}</p>}
@@ -121,11 +125,31 @@ export default function AttendanceMatrixTable({
                     );
                   })}
 
-                  <td className="py-2 px-1 text-center font-bold text-emerald-700 bg-emerald-50/40 border-l border-slate-200">{emp.summary?.hadir || 0}</td>
-                  <td className="py-2 px-1 text-center font-bold text-amber-700 bg-amber-50/40 border-l border-slate-200">{emp.summary?.terlambat || 0}</td>
-                  <td className="py-2 px-1 text-center font-bold text-blue-700 bg-blue-50/40 border-l border-slate-200">{emp.summary?.izinSakit || 0}</td>
-                  <td className="py-2 px-1 text-center font-bold text-purple-700 bg-purple-50/40 border-l border-slate-200">0</td>
-                  <td className="py-2 px-1 text-center font-bold text-rose-700 bg-rose-50/40 border-l border-slate-200">{emp.summary?.alpha || 0}</td>
+                  {/* REKAP SUMMARY TERPISAH PRESISI */}
+                  {/* H: Hadir Tepat */}
+                  <td className="py-2 px-1 text-center font-bold text-emerald-700 bg-emerald-50/40 border-l border-slate-200">
+                    {(emp.summary?.hadirTepat ?? emp.summary?.hadir) || 0}
+                  </td>
+
+                  {/* T: Terlambat */}
+                  <td className="py-2 px-1 text-center font-bold text-amber-700 bg-amber-50/40 border-l border-slate-200">
+                    {emp.summary?.terlambat || 0}
+                  </td>
+
+                  {/* I: Izin Murni */}
+                  <td className="py-2 px-1 text-center font-bold text-blue-700 bg-blue-50/40 border-l border-slate-200">
+                    {emp.summary?.izin || 0}
+                  </td>
+
+                  {/* S: Sakit Murni */}
+                  <td className="py-2 px-1 text-center font-bold text-purple-700 bg-purple-50/40 border-l border-slate-200">
+                    {emp.summary?.sakit || 0}
+                  </td>
+
+                  {/* A: Alpha / Mangkir */}
+                  <td className="py-2 px-1 text-center font-bold text-rose-700 bg-rose-50/40 border-l border-slate-200">
+                    {(emp.summary?.mangkir ?? emp.summary?.alpha) || 0}
+                  </td>
                 </tr>
               ))
             )}

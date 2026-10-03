@@ -20,7 +20,7 @@ export const exportMatrixToExcel = async ({
   const worksheet = workbook.addWorksheet('Matriks Kehadiran');
 
   // 1. Judul Header Laporan
-  worksheet.mergeCells(1, 1, 1, daysInMonth + 8);
+  worksheet.mergeCells(1, 1, 1, daysInMonth + 10);
   const titleCell = worksheet.getCell(1, 1);
   titleCell.value = `MATRIKS KEHADIRAN PEGAWAI - ${monthNames[selectedMonth - 1].toUpperCase()} ${selectedYear}`;
   titleCell.font = { name: 'Arial', size: 14, bold: true, color: { argb: 'FF1E293B' } };
@@ -28,12 +28,12 @@ export const exportMatrixToExcel = async ({
 
   worksheet.addRow([]);
 
-  // 2. Header Tabel
+  // 2. Header Tabel (Lengkap: H, T, I, S, C, A)
   const headerRowValues: any[] = ['No', 'PIN', 'Nama Pegawai', 'Jabatan'];
   for (let day = 1; day <= daysInMonth; day++) {
     headerRowValues.push(day);
   }
-  headerRowValues.push('H', 'T', 'I', 'S', 'A');
+  headerRowValues.push('H', 'T', 'I', 'S', 'C', 'A');
 
   const headerRow = worksheet.addRow(headerRowValues);
   headerRow.height = 26;
@@ -47,7 +47,8 @@ export const exportMatrixToExcel = async ({
     } else if (colNumber <= 4 + daysInMonth) {
       cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF475569' } };
     } else {
-      const bgColors = ['FF059669', 'FFD97706', 'FF2563EB', 'FF9333EA', 'FFE11D48'];
+      // Warna Header Ringkasan: H (Hijau), T (Kuning/Oranye), I (Biru), S (Ungu), C (Biru Muda), A (Merah)
+      const bgColors = ['FF059669', 'FFD97706', 'FF2563EB', 'FF9333EA', 'FF0284C7', 'FFE11D48'];
       const idx = colNumber - (4 + daysInMonth) - 1;
       cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bgColors[idx] || 'FF334155' } };
     }
@@ -70,7 +71,7 @@ export const exportMatrixToExcel = async ({
     ];
 
     for (let day = 1; day <= daysInMonth; day++) {
-      const statusObj = emp.dailyStatus?.[String(day)];
+      const statusObj = emp.dailyStatus?.[String(day)] || emp.days?.[String(day)];
       let cellText = '-';
 
       if (statusObj) {
@@ -88,20 +89,28 @@ export const exportMatrixToExcel = async ({
           case 'Sakit':
             cellText = 'S';
             break;
+          case 'Cuti':
+            cellText = 'C';
+            break;
           case 'Alpha':
             cellText = 'A';
+            break;
+          case 'Libur':
+            cellText = 'L';
             break;
         }
       }
       rowValues.push(cellText);
     }
 
+    // 🔥 MASALAH UTAMA DIPERBAIKI DI SINI: Izin, Sakit, & Cuti Dipisah Akurat!
     rowValues.push(
-      emp.summary?.hadir || 0,
-      emp.summary?.terlambat || 0,
-      emp.summary?.izinSakit || 0,
-      0,
-      emp.summary?.alpha || 0
+      emp.summary?.hadir ?? emp.summary?.hadirTepat ?? 0,
+      emp.summary?.terlambat ?? 0,
+      emp.summary?.izin ?? 0,
+      emp.summary?.sakit ?? 0,
+      emp.summary?.cuti ?? 0,
+      emp.summary?.alpha ?? emp.summary?.mangkir ?? 0
     );
 
     const dataRow = worksheet.addRow(rowValues);
@@ -115,9 +124,10 @@ export const exportMatrixToExcel = async ({
         cell.alignment = { vertical: 'middle', horizontal: 'left', wrapText: true };
       }
 
+      // Format Warna Cell Hari
       if (colNumber > 4 && colNumber <= 4 + daysInMonth) {
         const dayNum = colNumber - 4;
-        const statusObj = emp.dailyStatus?.[String(dayNum)];
+        const statusObj = emp.dailyStatus?.[String(dayNum)] || emp.days?.[String(dayNum)];
 
         if (statusObj) {
           if (statusObj.status === 'Hadir') {
@@ -137,17 +147,25 @@ export const exportMatrixToExcel = async ({
           } else if (statusObj.status === 'Sakit') {
             cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF3E8FF' } };
             cell.font = { size: 9, bold: true, color: { argb: 'FF6B21A8' } };
+          } else if (statusObj.status === 'Cuti') {
+            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE0F2FE' } };
+            cell.font = { size: 9, bold: true, color: { argb: 'FF0369A1' } };
           } else if (statusObj.status === 'Alpha') {
             cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEE2E2' } };
             cell.font = { size: 9, bold: true, color: { argb: 'FF991B1B' } };
+          } else if (statusObj.status === 'Libur') {
+            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' } };
+            cell.font = { size: 9, color: { argb: 'FF64748B' } };
           }
         } else {
           cell.font = { size: 9, color: { argb: 'FF94A3B8' } };
         }
       }
 
+      // Format Summary Kolom Kanan
       if (colNumber > 4 + daysInMonth) {
         cell.font = { size: 9, bold: true };
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF8FAFC' } };
       }
 
       cell.border = {
@@ -169,7 +187,7 @@ export const exportMatrixToExcel = async ({
     worksheet.getColumn(i).width = 8.5;
   }
 
-  for (let i = 5 + daysInMonth; i <= 9 + daysInMonth; i++) {
+  for (let i = 5 + daysInMonth; i <= 10 + daysInMonth; i++) {
     worksheet.getColumn(i).width = 6;
   }
 

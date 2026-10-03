@@ -4,50 +4,72 @@ import ExcelJS from 'exceljs';
 
 const db = prisma as any;
 
-// Helper Parse Date yang Aman Timezone & Stripping Hours
-function parseToLocalDate(dateStr: string): Date | null {
-  if (!dateStr) return null;
-  const cleanStr = dateStr.trim();
-  let y = 0, m = 0, d = 0;
+const timeToMinutes = (timeStr: string): number | null => {
+  if (!timeStr || timeStr === '-' || timeStr.trim() === '') return null;
+  
+  let str = timeStr.trim().toUpperCase().replace(/\./g, ':');
 
-  if (cleanStr.includes('-') || cleanStr.includes('/')) {
-    const sep = cleanStr.includes('-') ? '-' : '/';
-    const parts = cleanStr.split(sep);
-    if (parts[0].length === 4) {
-      // YYYY-MM-DD
-      y = parseInt(parts[0], 10);
-      m = parseInt(parts[1], 10) - 1;
-      d = parseInt(parts[2], 10);
-    } else if (parts[2].length === 4) {
-      // DD-MM-YYYY
-      d = parseInt(parts[0], 10);
-      m = parseInt(parts[1], 10) - 1;
-      y = parseInt(parts[2], 10);
+  if (str.includes('AM') || str.includes('PM')) {
+    const isPM = str.includes('PM');
+    const cleanTime = str.replace(/AM|PM/g, '').trim();
+    const parts = cleanTime.split(':');
+    
+    let h = parseInt(parts[0], 10);
+    let m = parseInt(parts[1] || '0', 10);
+
+    if (isNaN(h)) return null;
+    if (isPM && h < 12) h += 12;
+    if (!isPM && h === 12) h = 0;
+
+    return h * 60 + (isNaN(m) ? 0 : m);
+  }
+
+  const parts = str.split(':');
+  if (parts.length >= 2) {
+    const h = parseInt(parts[0], 10);
+    const m = parseInt(parts[1], 10);
+    if (!isNaN(h) && !isNaN(m)) {
+      return h * 60 + m;
     }
   }
 
-  if (!y || isNaN(y)) return null;
-  return new Date(y, m, d, 0, 0, 0, 0);
-}
+  return null;
+};
+
+const parseFlexibleDate = (dateStr: string): Date | null => {
+  if (!dateStr) return null;
+  const str = String(dateStr).trim();
+
+  if (str.includes('-') || str.includes('/')) {
+    const sep = str.includes('-') ? '-' : '/';
+    const parts = str.split(sep);
+    if (parts.length === 3) {
+      if (parts[0].length === 2 && parts[2].length === 4) {
+        return new Date(parseInt(parts[2], 10), parseInt(parts[1], 10) - 1, parseInt(parts[0], 10));
+      }
+      if (parts[0].length === 4) {
+        return new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+      }
+    }
+  }
+
+  const d = new Date(str);
+  return isNaN(d.getTime()) ? null : d;
+};
 
 function isValidTime(val: string | null | undefined): boolean {
   if (!val) return false;
   const clean = val.trim();
-  return clean !== '' && clean !== '--:--' && clean !== '-' && clean !== 'null';
-}
-
-function timeToMinutes(timeStr: string): number {
-  if (!timeStr || !timeStr.includes(':')) return 0;
-  const [h, m] = timeStr.split(':').map((v) => parseInt(v, 10) || 0);
-  return h * 60 + m;
+  return clean !== '' && clean !== '--:--' && clean !== '-' && clean !== 'null' && clean !== '00:00:00' && clean !== '00.00.00';
 }
 
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const pin = searchParams.get('pin')?.trim();
-    const month = parseInt(searchParams.get('month') || String(new Date().getMonth() + 1), 10);
-    const year = parseInt(searchParams.get('year') || String(new Date().getFullYear()), 10);
+    const now = new Date();
+    const month = parseInt(searchParams.get('month') || String(now.getMonth() + 1), 10);
+    const year = parseInt(searchParams.get('year') || String(now.getFullYear()), 10);
 
     if (!pin) {
       return NextResponse.json({ success: false, error: 'PIN Pegawai wajib diisi.' }, { status: 400 });
@@ -60,21 +82,21 @@ export async function GET(req: NextRequest) {
     ];
     const monthName = monthNames[month - 1];
 
-    // Fetch Global Setting, Employee, Logs, Permissions, Holidays
+    // Fetch Global Setting, Employee, Logs, Permissions, Holidays secara paralel
     const [globalSetting, employee, allLogs, permissions, holidays] = await Promise.all([
-      db.setting.findUnique({ where: { id: 'default' } }),
+      db.setting.findFirst().catch(() => null),
       prisma.employee.findUnique({
         where: { pin },
         include: { schedules: true },
       }),
-      prisma.attendanceLog.findMany({ where: { pin } }),
+      prisma.attendanceLog.findMany({ where: { pin } }).catch(() => []),
       prisma.permission.findMany({
         where: {
           pin,
           status: { in: ['Approved', 'APPROVED', 'approved', 'Disetujui', 'DISETUJUI'] },
         },
-      }),
-      prisma.holiday.findMany(),
+      }).catch(() => []),
+      prisma.holiday.findMany().catch(() => []),
     ]);
 
     if (!employee) {
@@ -82,7 +104,17 @@ export async function GET(req: NextRequest) {
     }
 
     // Default Jam Kerja dari Global Setting
-    const defaultGlobalWorkStart = globalSetting?.workStartTime || '07:15';
+    let defaultStartMin = 435; // 07:15
+    let defaultEndMin = 840;   // 14:00
+
+    if (globalSetting?.workStartTime) {
+      const parsed = timeToMinutes(globalSetting.workStartTime);
+      if (parsed !== null) defaultStartMin = parsed;
+    }
+    if (globalSetting?.workEndTime) {
+      const parsed = timeToMinutes(globalSetting.workEndTime);
+      if (parsed !== null) defaultEndMin = parsed;
+    }
 
     const formattedMonth = String(month).padStart(2, '0');
 
@@ -90,6 +122,7 @@ export async function GET(req: NextRequest) {
     const worksheet = workbook.addWorksheet(`Laporan_${employee.name.substring(0, 10)}`);
     worksheet.views = [{ showGridLines: true }];
 
+    // --- HEADER DOKUMEN ---
     worksheet.mergeCells('A1:F1');
     worksheet.getCell('A1').value = 'SMKS AL KAAFFAH - LAPORAN KEHADIRAN INDIVIDUAL';
     worksheet.getCell('A1').font = { name: 'Arial', size: 14, bold: true, color: { argb: 'FF1E3A8A' } };
@@ -112,6 +145,7 @@ export async function GET(req: NextRequest) {
 
     worksheet.addRow([]);
 
+    // --- TABEL HEADER ---
     const headerRow = worksheet.addRow(['Tanggal', 'Hari', 'Jam Masuk', 'Jam Keluar', 'Status', 'Keterangan']);
     headerRow.height = 25;
 
@@ -121,28 +155,59 @@ export async function GET(req: NextRequest) {
       cell.alignment = { horizontal: 'center', vertical: 'middle' };
     });
 
-    // Map Schedule Individual
+    // Map Jadwal Individual
     const scheduleMap: Record<number, { isWorking: boolean; startTime?: string; endTime?: string }> = {};
     if (employee.schedules && Array.isArray(employee.schedules)) {
       employee.schedules.forEach((s: any) => {
         scheduleMap[s.dayOfWeek] = {
           isWorking: s.isWorking,
-          startTime: s.startTime || '07:15',
-          endTime: s.endTime || '14:00',
+          startTime: s.startTime,
+          endTime: s.endTime,
         };
       });
     }
 
     const dayNames = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
 
+    // Map Log per Tanggal
+    const logsByDay: Record<string, any[]> = {};
+    allLogs.forEach((log: any) => {
+      const parsedD = parseFlexibleDate(log.date);
+      if (parsedD && parsedD.getMonth() + 1 === month && parsedD.getFullYear() === year) {
+        const dayKey = String(parsedD.getDate());
+        if (!logsByDay[dayKey]) logsByDay[dayKey] = [];
+        logsByDay[dayKey].push(log);
+      }
+    });
+
+    // Map Perizinan per Tanggal
+    const permByDay: Record<string, any> = {};
+    permissions.forEach((p: any) => {
+      const startDate = parseFlexibleDate(p.startDate);
+      const endDate = parseFlexibleDate(p.endDate || p.startDate);
+
+      if (startDate && endDate) {
+        const curr = new Date(startDate);
+        while (curr <= endDate) {
+          if (curr.getMonth() + 1 === month && curr.getFullYear() === year) {
+            const dayStrKey = String(curr.getDate());
+            permByDay[dayStrKey] = p;
+          }
+          curr.setDate(curr.getDate() + 1);
+        }
+      }
+    });
+
     let countHadirTepat = 0;
     let countTerlambat = 0;
+    let countPulangCepat = 0;
     let countIzin = 0;
     let countSakit = 0;
     let countCuti = 0;
     let countAlpha = 0;
 
     for (let day = 1; day <= daysInMonth; day++) {
+      const dayKey = String(day);
       const dayStr = String(day).padStart(2, '0');
       const currentDateObj = new Date(year, month - 1, day, 0, 0, 0, 0);
 
@@ -154,25 +219,8 @@ export async function GET(req: NextRequest) {
       const dateSlashFormat = `${dayStr}/${formattedMonth}/${year}`;
       const dateSingleDigit = `${day}-${month}-${year}`;
 
-      const record = allLogs.find((l) => {
-        if (!l.date) return false;
-        const cleanDate = l.date.trim();
-        return (
-          cleanDate === dateLocalFormat ||
-          cleanDate === dateSingleDigit ||
-          cleanDate === dateIsoFormat ||
-          cleanDate === dateSlashFormat
-        );
-      });
-
-      // Filter Izin/Sakit/Cuti
-      const approvedPermission = permissions.find((p) => {
-        const startDate = parseToLocalDate(p.startDate);
-        const endDate = parseToLocalDate(p.endDate || p.startDate);
-        if (!startDate) return false;
-        const eDate = endDate || startDate;
-        return currentDateObj >= startDate && currentDateObj <= eDate;
-      });
+      const dayLogs = logsByDay[dayKey] || [];
+      const approvedPermission = permByDay[dayKey];
 
       const holidaySetting = holidays.find((h) => {
         if (!h.date) return false;
@@ -186,76 +234,124 @@ export async function GET(req: NextRequest) {
       });
 
       const empSched = scheduleMap[dayOfWeek];
-      const isScheduledOff = empSched ? !empSched.isWorking : dayOfWeek === 0;
+      const isScheduledOff = empSched ? !empSched.isWorking : false;
+      const isWeekendOrHoliday = dayOfWeek === 0 || holidaySetting || isScheduledOff;
 
-      const targetStartTime = empSched?.startTime || defaultGlobalWorkStart;
+      let empLimitStartMin = defaultStartMin;
+      let empLimitEndMin = defaultEndMin;
 
-      const hasScan = Boolean(record && isValidTime(record.checkIn));
+      if (empSched) {
+        if (empSched.startTime) {
+          const pStart = timeToMinutes(empSched.startTime);
+          if (pStart !== null) empLimitStartMin = pStart;
+        }
+        if (empSched.endTime) {
+          const pEnd = timeToMinutes(empSched.endTime);
+          if (pEnd !== null) empLimitEndMin = pEnd;
+        }
+      }
+
+      // Cari CheckIn paling awal dan CheckOut paling akhir
+      let earliestCheckInLog: any = null;
+      let latestCheckOutLog: any = null;
+      let minInMinutes = 99999;
+      let maxOutMinutes = -1;
+
+      dayLogs.forEach((log) => {
+        const inStr = (log.checkIn || '').toString().trim();
+        const outStr = (log.checkOut || '').toString().trim();
+
+        if (isValidTime(inStr)) {
+          const m = timeToMinutes(inStr);
+          if (m !== null && m < minInMinutes) {
+            minInMinutes = m;
+            earliestCheckInLog = log;
+          }
+        }
+
+        if (isValidTime(outStr)) {
+          const m = timeToMinutes(outStr);
+          if (m !== null && m > maxOutMinutes) {
+            maxOutMinutes = m;
+            latestCheckOutLog = log;
+          }
+        }
+      });
 
       let checkIn = '-';
       let checkOut = '-';
       let status = 'Alpha';
       let ket = '-';
 
-      if (approvedPermission) {
-        const pType = (approvedPermission.type || 'Izin').trim();
-        const lowerType = pType.toLowerCase();
+      const isPulangAwalPerm = approvedPermission && (approvedPermission.type || '').toLowerCase().includes('pulang');
 
-        // A. Pengecekan Izin Terlambat
-        if (lowerType.includes('terlambat') || lowerType.includes('late')) {
+      // 1. IZIN PULANG AWAL
+      if (isPulangAwalPerm) {
+        checkIn = earliestCheckInLog ? earliestCheckInLog.checkIn : '-';
+        checkOut = approvedPermission.earlyLeaveTime || (latestCheckOutLog ? latestCheckOutLog.checkOut : '-');
+
+        const checkInMin = timeToMinutes(checkIn) || empLimitStartMin;
+        const isLate = checkInMin > empLimitStartMin;
+
+        if (isLate) {
           countTerlambat++;
           status = 'Terlambat';
-          ket = approvedPermission.reason || 'Izin Terlambat Disetujui';
-          if (hasScan && record) {
-            checkIn = isValidTime(record.checkIn) ? record.checkIn! : '-';
-            checkOut = isValidTime(record.checkOut) ? record.checkOut! : '-';
-          }
-        } 
-        // B. Pengecekan Sakit ('S', 'Sakit', 'SK', 'Izin Sakit')
-        else if (lowerType === 's' || lowerType.includes('sakit') || lowerType.includes('sick') || lowerType === 'sk') {
-          countSakit++;
-          status = 'Sakit';
-          ket = approvedPermission.reason || 'Sakit (Surat/Izin Disetujui)';
-        } 
-        // C. Pengecekan Cuti ('C', 'Cuti')
-        else if (lowerType === 'c' || lowerType.includes('cuti') || lowerType.includes('leave')) {
-          countCuti++;
-          status = 'Cuti';
-          ket = approvedPermission.reason || 'Cuti Disetujui';
-        } 
-        // D. Izin Murni
-        else {
-          countIzin++;
-          status = 'Izin';
-          ket = approvedPermission.reason || 'Izin Disetujui';
-        }
-      } else if (hasScan && record) {
-        checkIn = isValidTime(record.checkIn) ? record.checkIn! : '-';
-        checkOut = isValidTime(record.checkOut) ? record.checkOut! : '-';
-
-        const scanInMinutes = timeToMinutes(checkIn);
-        const targetMinutes = timeToMinutes(targetStartTime);
-        const lateMinutes = scanInMinutes - targetMinutes;
-
-        if (lateMinutes > 0) {
-          countTerlambat++;
-          status = 'Terlambat';
-          ket = `Terlambat (${lateMinutes} mnt)`;
+          ket = `Terlambat & Izin Pulang Awal (${approvedPermission.reason || 'Disetujui'})`;
         } else {
           countHadirTepat++;
           status = 'Hadir';
-          ket = 'Hadir Tepat Waktu';
+          ket = `Izin Pulang Awal (${approvedPermission.reason || 'Disetujui'})`;
         }
-      } else if (holidaySetting) {
+        countPulangCepat++;
+      }
+      // 2. IZIN FULL DAY / SAKIT / CUTI
+      else if (approvedPermission) {
+        const pType = (approvedPermission.type || 'Izin').trim().toLowerCase();
+
+        if (pType.includes('sakit') || pType === 's' || pType === 'sk') {
+          countSakit++;
+          status = 'Sakit';
+          ket = approvedPermission.reason || 'Sakit (Disetujui)';
+        } else if (pType.includes('cuti') || pType === 'c') {
+          countCuti++;
+          status = 'Cuti';
+          ket = approvedPermission.reason || 'Cuti (Disetujui)';
+        } else {
+          countIzin++;
+          status = 'Izin';
+          ket = approvedPermission.reason || 'Izin (Disetujui)';
+        }
+      }
+      // 3. PRESENSI NORMAL
+      else if (earliestCheckInLog && minInMinutes !== 99999) {
+        checkIn = earliestCheckInLog.checkIn || '-';
+        checkOut = latestCheckOutLog ? latestCheckOutLog.checkOut : '-';
+
+        const isLate = minInMinutes > empLimitStartMin;
+        const isEarlyLeave = maxOutMinutes !== -1 && maxOutMinutes < empLimitEndMin;
+
+        if (isEarlyLeave) countPulangCepat++;
+
+        if (isLate) {
+          countTerlambat++;
+          status = 'Terlambat';
+          ket = `Terlambat (${minInMinutes - empLimitStartMin} mnt)${isEarlyLeave ? ' & Pulang Cepat' : ''}`;
+        } else {
+          countHadirTepat++;
+          status = 'Hadir';
+          ket = isEarlyLeave ? 'Hadir (Pulang Cepat)' : 'Hadir Tepat Waktu';
+        }
+      }
+      // 4. LIBUR / WEEKEND
+      else if (isWeekendOrHoliday) {
         status = 'Libur';
-        ket = holidaySetting.description || 'Libur Nasional';
-      } else if (isScheduledOff) {
-        status = 'Libur';
-        ket = 'Libur Akhir Pekan';
-      } else {
+        ket = holidaySetting ? (holidaySetting.description || 'Libur Nasional') : 'Libur Akhir Pekan';
+      }
+      // 5. ALPHA
+      else {
         countAlpha++;
         status = 'Alpha';
-        ket = 'Tidak Melakukan Scan';
+        ket = 'Tidak Melakukan Scan / Tanpa Keterangan';
       }
 
       const row = worksheet.addRow([
@@ -286,12 +382,14 @@ export async function GET(req: NextRequest) {
           if (status === 'Hadir') cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD1FAE5' } };
           else if (status === 'Terlambat') cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF3C7' } };
           else if (status === 'Alpha') cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFE4E6' } };
-          else if (['Izin', 'Sakit', 'Cuti'].includes(status)) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF3E8FF' } };
+          else if (status === 'Sakit') cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF3E8FF' } };
+          else if (['Izin', 'Cuti'].includes(status)) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDBEAFE' } };
           else cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' } };
         }
       });
     }
 
+    // --- RINGKASAN KEHADIRAN ---
     worksheet.addRow([]);
     const summaryHeader = worksheet.addRow(['RINGKASAN KEHADIRAN']);
     summaryHeader.getCell(1).font = { name: 'Arial', bold: true };
@@ -300,18 +398,20 @@ export async function GET(req: NextRequest) {
 
     worksheet.addRow(['Hadir Tepat Waktu', countHadirTepat]);
     worksheet.addRow(['Terlambat', countTerlambat]);
+    worksheet.addRow(['Pulang Cepat', countPulangCepat]);
     worksheet.addRow(['Total Kehadiran (Tepat + Terlambat)', totalHadirKeseluruhan]);
     worksheet.addRow(['Izin', countIzin]);
     worksheet.addRow(['Sakit', countSakit]);
     worksheet.addRow(['Cuti', countCuti]);
     worksheet.addRow(['Alpha / Tanpa Keterangan', countAlpha]);
 
+    // Lebar Kolom
     worksheet.getColumn(1).width = 15;
     worksheet.getColumn(2).width = 12;
     worksheet.getColumn(3).width = 14;
     worksheet.getColumn(4).width = 14;
     worksheet.getColumn(5).width = 16;
-    worksheet.getColumn(6).width = 35;
+    worksheet.getColumn(6).width = 45;
 
     const buffer = await workbook.xlsx.writeBuffer();
 
@@ -324,6 +424,7 @@ export async function GET(req: NextRequest) {
       },
     });
   } catch (error: any) {
+    console.error('[EXCEL EXPORT ERROR]', error);
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
 }
