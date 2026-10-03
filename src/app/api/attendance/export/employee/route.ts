@@ -4,20 +4,30 @@ import ExcelJS from 'exceljs';
 
 const db = prisma as any;
 
-function parseDateString(dateStr: string): Date {
-  if (!dateStr) return new Date(0);
+// Helper Parse Date yang Aman Timezone & Stripping Hours
+function parseToLocalDate(dateStr: string): Date | null {
+  if (!dateStr) return null;
   const cleanStr = dateStr.trim();
+  let y = 0, m = 0, d = 0;
+
   if (cleanStr.includes('-') || cleanStr.includes('/')) {
     const sep = cleanStr.includes('-') ? '-' : '/';
     const parts = cleanStr.split(sep);
-    if (parts[0].length === 2 && parts[2].length === 4) {
-      return new Date(parseInt(parts[2], 10), parseInt(parts[1], 10) - 1, parseInt(parts[0], 10));
-    }
     if (parts[0].length === 4) {
-      return new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+      // YYYY-MM-DD
+      y = parseInt(parts[0], 10);
+      m = parseInt(parts[1], 10) - 1;
+      d = parseInt(parts[2], 10);
+    } else if (parts[2].length === 4) {
+      // DD-MM-YYYY
+      d = parseInt(parts[0], 10);
+      m = parseInt(parts[1], 10) - 1;
+      y = parseInt(parts[2], 10);
     }
   }
-  return new Date(cleanStr);
+
+  if (!y || isNaN(y)) return null;
+  return new Date(y, m, d, 0, 0, 0, 0);
 }
 
 function isValidTime(val: string | null | undefined): boolean {
@@ -112,7 +122,7 @@ export async function GET(req: NextRequest) {
       cell.alignment = { horizontal: 'center', vertical: 'middle' };
     });
 
-    // Map Schedule Individual (Include startTime & endTime)
+    // Map Schedule Individual
     const scheduleMap: Record<number, { isWorking: boolean; startTime?: string; endTime?: string }> = {};
     if (employee.schedules && Array.isArray(employee.schedules)) {
       employee.schedules.forEach((s: any) => {
@@ -126,15 +136,16 @@ export async function GET(req: NextRequest) {
 
     const dayNames = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
 
-    let countHadir = 0;
+    let countHadirTepat = 0;
     let countTerlambat = 0;
     let countIzin = 0;
+    let countSakit = 0;
+    let countCuti = 0;
     let countAlpha = 0;
 
     for (let day = 1; day <= daysInMonth; day++) {
       const dayStr = String(day).padStart(2, '0');
-      const currentDateObj = new Date(year, month - 1, day);
-      currentDateObj.setHours(0, 0, 0, 0);
+      const currentDateObj = new Date(year, month - 1, day, 0, 0, 0, 0);
 
       const dayOfWeek = currentDateObj.getDay();
       const dayName = dayNames[dayOfWeek];
@@ -155,12 +166,13 @@ export async function GET(req: NextRequest) {
         );
       });
 
+      // Filter Izin/Sakit/Cuti
       const approvedPermission = permissions.find((p) => {
-        const startDate = parseDateString(p.startDate);
-        const endDate = parseDateString(p.endDate || p.startDate);
-        startDate.setHours(0, 0, 0, 0);
-        endDate.setHours(23, 59, 59, 999);
-        return currentDateObj >= startDate && currentDateObj <= endDate;
+        const startDate = parseToLocalDate(p.startDate);
+        const endDate = parseToLocalDate(p.endDate || p.startDate);
+        if (!startDate) return false;
+        const eDate = endDate || startDate;
+        return currentDateObj >= startDate && currentDateObj <= eDate;
       });
 
       const holidaySetting = holidays.find((h) => {
@@ -177,9 +189,7 @@ export async function GET(req: NextRequest) {
       const empSched = scheduleMap[dayOfWeek];
       const isScheduledOff = empSched ? !empSched.isWorking : dayOfWeek === 0;
 
-      // HIRARKI JAM KERJA: Individual Override -> Global Setting Fallback
       const targetStartTime = empSched?.startTime || defaultGlobalWorkStart;
-      const targetEndTime = empSched?.endTime || defaultGlobalWorkEnd;
 
       const hasScan = Boolean(record && isValidTime(record.checkIn));
 
@@ -189,9 +199,13 @@ export async function GET(req: NextRequest) {
       let ket = '-';
 
       if (approvedPermission) {
-        countIzin++;
-        status = approvedPermission.type || 'Izin';
-        ket = approvedPermission.reason || 'Izin Disetujui';
+        const pType = (approvedPermission.type || 'Izin').trim();
+        status = pType;
+        ket = approvedPermission.reason || `${pType} Disetujui`;
+
+        if (pType.toLowerCase().includes('sakit')) countSakit++;
+        else if (pType.toLowerCase().includes('cuti')) countCuti++;
+        else countIzin++;
       } else if (hasScan && record) {
         checkIn = isValidTime(record.checkIn) ? record.checkIn! : '-';
         checkOut = isValidTime(record.checkOut) ? record.checkOut! : '-';
@@ -205,7 +219,7 @@ export async function GET(req: NextRequest) {
           status = 'Terlambat';
           ket = `Terlambat (${lateMinutes} mnt)`;
         } else {
-          countHadir++;
+          countHadirTepat++;
           status = 'Hadir';
           ket = 'Hadir Tepat Waktu';
         }
@@ -259,9 +273,14 @@ export async function GET(req: NextRequest) {
     const summaryHeader = worksheet.addRow(['RINGKASAN KEHADIRAN']);
     summaryHeader.getCell(1).font = { name: 'Arial', bold: true };
 
-    worksheet.addRow(['Total Hadir', countHadir + countTerlambat]);
+    const totalHadirKeseluruhan = countHadirTepat + countTerlambat;
+
+    worksheet.addRow(['Hadir Tepat Waktu', countHadirTepat]);
     worksheet.addRow(['Terlambat', countTerlambat]);
-    worksheet.addRow(['Izin / Sakit / Cuti', countIzin]);
+    worksheet.addRow(['Total Kehadiran (Tepat + Terlambat)', totalHadirKeseluruhan]);
+    worksheet.addRow(['Izin', countIzin]);
+    worksheet.addRow(['Sakit', countSakit]);
+    worksheet.addRow(['Cuti', countCuti]);
     worksheet.addRow(['Alpha / Tanpa Keterangan', countAlpha]);
 
     worksheet.getColumn(1).width = 15;

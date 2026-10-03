@@ -1,20 +1,36 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 
-function parseDateString(dateStr: string): Date {
-  if (!dateStr) return new Date(0);
+// Helper Parse Date yang Aman Timezone & Stripping Hours
+function parseToLocalDate(dateStr: string): Date | null {
+  if (!dateStr) return null;
   const cleanStr = dateStr.trim();
+  let y = 0, m = 0, d = 0;
+
   if (cleanStr.includes('-') || cleanStr.includes('/')) {
     const sep = cleanStr.includes('-') ? '-' : '/';
     const parts = cleanStr.split(sep);
-    if (parts[0].length === 2 && parts[2].length === 4) {
-      return new Date(parseInt(parts[2], 10), parseInt(parts[1], 10) - 1, parseInt(parts[0], 10));
-    }
     if (parts[0].length === 4) {
-      return new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+      // YYYY-MM-DD
+      y = parseInt(parts[0], 10);
+      m = parseInt(parts[1], 10) - 1;
+      d = parseInt(parts[2], 10);
+    } else if (parts[2].length === 4) {
+      // DD-MM-YYYY
+      d = parseInt(parts[0], 10);
+      m = parseInt(parts[1], 10) - 1;
+      y = parseInt(parts[2], 10);
     }
   }
-  return new Date(cleanStr);
+
+  if (!y || isNaN(y)) return null;
+  return new Date(y, m, d, 0, 0, 0, 0);
+}
+
+function isValidTime(val: string | null | undefined): boolean {
+  if (!val) return false;
+  const clean = val.trim();
+  return clean !== '' && clean !== '--:--' && clean !== '-' && clean !== 'null';
 }
 
 export async function GET(req: NextRequest) {
@@ -42,10 +58,12 @@ export async function GET(req: NextRequest) {
 
     const matrixData = employees.map((emp) => {
       const dailyStatus: Record<number, { status: string; code: string; color: string; checkIn?: string }> = {};
-      let totalHadir = 0;
+      let totalHadirTepat = 0;
       let totalTerlambat = 0;
       let totalMangkir = 0;
       let totalIzin = 0;
+      let totalSakit = 0;
+      let totalCuti = 0;
 
       const scheduleMap: Record<number, boolean> = {};
       if (emp.schedules && Array.isArray(emp.schedules)) {
@@ -56,38 +74,47 @@ export async function GET(req: NextRequest) {
 
       for (let day = 1; day <= daysInMonth; day++) {
         const dayStr = String(day).padStart(2, '0');
-        const targetDate = `${dayStr}-${formattedMonth}-${year}`;
-        const currentDateObj = new Date(year, month - 1, day);
-        currentDateObj.setHours(0, 0, 0, 0);
+        const currentDateObj = new Date(year, month - 1, day, 0, 0, 0, 0);
 
         const dayOfWeek = currentDateObj.getDay();
 
         const dateIsoFormat = `${year}-${formattedMonth}-${dayStr}`;
         const dateLocalFormat = `${dayStr}-${formattedMonth}-${year}`;
+        const dateSlashFormat = `${dayStr}/${formattedMonth}/${year}`;
         const dateSingleDigit = `${day}-${month}-${year}`;
 
         // Match Log
-        const record = allLogs.find(
-          (l) =>
-            String(l.pin).trim() === String(emp.pin).trim() &&
-            (l.date === targetDate || l.date === dateSingleDigit || l.date === dateIsoFormat)
-        );
+        const record = allLogs.find((l) => {
+          if (String(l.pin).trim() !== String(emp.pin).trim() || !l.date) return false;
+          const cleanDate = l.date.trim();
+          return (
+            cleanDate === dateLocalFormat ||
+            cleanDate === dateSingleDigit ||
+            cleanDate === dateIsoFormat ||
+            cleanDate === dateSlashFormat
+          );
+        });
 
-        // Match Permission
+        // Match Permission (Aman Timezone)
         const approvedPermission = permissions.find((p) => {
           if (String(p.pin).trim() !== String(emp.pin).trim()) return false;
-          const startDate = parseDateString(p.startDate);
-          const endDate = parseDateString(p.endDate || p.startDate);
-          startDate.setHours(0, 0, 0, 0);
-          endDate.setHours(23, 59, 59, 999);
-          return currentDateObj >= startDate && currentDateObj <= endDate;
+          const startDate = parseToLocalDate(p.startDate);
+          const endDate = parseToLocalDate(p.endDate || p.startDate);
+          if (!startDate) return false;
+          const eDate = endDate || startDate;
+          return currentDateObj >= startDate && currentDateObj <= eDate;
         });
 
         // Match Holiday
         const isHolidaySetting = holidays.some((h) => {
           if (!h.date) return false;
           const cleanHDate = h.date.trim();
-          return cleanHDate === dateIsoFormat || cleanHDate === dateLocalFormat || cleanHDate === dateSingleDigit;
+          return (
+            cleanHDate === dateIsoFormat ||
+            cleanHDate === dateLocalFormat ||
+            cleanHDate === dateSlashFormat ||
+            cleanHDate === dateSingleDigit
+          );
         });
 
         const customWorking = scheduleMap[dayOfWeek];
@@ -95,23 +122,50 @@ export async function GET(req: NextRequest) {
         const isWeekendOrHoliday = isHolidaySetting || isScheduledOff;
 
         if (approvedPermission) {
-          totalIzin++;
-          const pType = approvedPermission.type || 'Izin';
-          const code = pType.includes('Sakit') ? 'S' : pType.includes('Cuti') ? 'C' : 'I';
+          const pType = (approvedPermission.type || 'Izin').trim();
+          let code = 'I';
+          let color = 'bg-blue-100 text-blue-700 font-bold';
+
+          if (pType.toLowerCase().includes('sakit')) {
+            code = 'S';
+            color = 'bg-purple-100 text-purple-700 font-bold';
+            totalSakit++;
+          } else if (pType.toLowerCase().includes('cuti')) {
+            code = 'C';
+            color = 'bg-indigo-100 text-indigo-700 font-bold';
+            totalCuti++;
+          } else {
+            totalIzin++;
+          }
 
           dailyStatus[day] = {
-            status: `${pType}`,
+            status: pType,
             code,
-            color: code === 'S' ? 'bg-purple-100 text-purple-700 font-bold' : 'bg-blue-100 text-blue-700 font-bold',
+            color,
           };
-        } else if (record) {
-            if (record.flagColor === 'amber') {
-              totalTerlambat++;
-              dailyStatus[day] = { status: record.status || 'Terlambat', code: 'T', color: 'bg-amber-100 text-amber-800 font-bold', checkIn: record.checkIn || undefined };
-            } else {
-              totalHadir++;
-              dailyStatus[day] = { status: 'Hadir', code: 'H', color: 'bg-emerald-100 text-emerald-800 font-medium', checkIn: record.checkIn || undefined };
-            }
+        } else if (record && (isValidTime(record.checkIn) || record.status === 'Hadir' || record.status === 'Terlambat')) {
+          const isLate =
+            record.flagColor === 'amber' ||
+            record.status === 'Terlambat' ||
+            (record.earlyLeaveReason && record.earlyLeaveReason.includes('Terlambat'));
+
+          if (isLate) {
+            totalTerlambat++;
+            dailyStatus[day] = {
+              status: 'Terlambat',
+              code: 'T',
+              color: 'bg-amber-100 text-amber-800 font-bold',
+              checkIn: record.checkIn || undefined,
+            };
+          } else {
+            totalHadirTepat++;
+            dailyStatus[day] = {
+              status: 'Hadir',
+              code: 'H',
+              color: 'bg-emerald-100 text-emerald-800 font-medium',
+              checkIn: record.checkIn || undefined,
+            };
+          }
         } else if (isWeekendOrHoliday) {
           dailyStatus[day] = {
             status: isHolidaySetting ? 'Libur Nasional' : 'Libur Akhir Pekan',
@@ -120,7 +174,11 @@ export async function GET(req: NextRequest) {
           };
         } else {
           totalMangkir++;
-          dailyStatus[day] = { status: 'Alpha', code: 'A', color: 'bg-rose-100 text-rose-700 font-bold' };
+          dailyStatus[day] = {
+            status: 'Alpha',
+            code: 'A',
+            color: 'bg-rose-100 text-rose-700 font-bold',
+          };
         }
       }
 
@@ -130,10 +188,14 @@ export async function GET(req: NextRequest) {
         role: emp.role,
         days: dailyStatus,
         summary: {
-          hadir: totalHadir + totalTerlambat,
+          hadirTepat: totalHadirTepat,
           terlambat: totalTerlambat,
+          hadir: totalHadirTepat + totalTerlambat, // Total gabungan Kehadiran
           mangkir: totalMangkir,
           izin: totalIzin,
+          sakit: totalSakit,
+          cuti: totalCuti,
+          totalIzinSakitCuti: totalIzin + totalSakit + totalCuti,
         },
       };
     });
