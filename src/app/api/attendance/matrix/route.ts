@@ -33,6 +33,12 @@ function isValidTime(val: string | null | undefined): boolean {
   return clean !== '' && clean !== '--:--' && clean !== '-' && clean !== 'null';
 }
 
+function timeToMinutes(timeStr: string): number {
+  if (!timeStr || !timeStr.includes(':')) return 0;
+  const [h, m] = timeStr.split(':').map((v) => parseInt(v, 10) || 0);
+  return h * 60 + m;
+}
+
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
@@ -65,10 +71,13 @@ export async function GET(req: NextRequest) {
       let totalSakit = 0;
       let totalCuti = 0;
 
-      const scheduleMap: Record<number, boolean> = {};
+      const scheduleMap: Record<number, { isWorking: boolean; startTime?: string }> = {};
       if (emp.schedules && Array.isArray(emp.schedules)) {
         emp.schedules.forEach((s: any) => {
-          scheduleMap[s.dayOfWeek] = s.isWorking;
+          scheduleMap[s.dayOfWeek] = {
+            isWorking: s.isWorking,
+            startTime: s.startTime || '07:15',
+          };
         });
       }
 
@@ -117,34 +126,60 @@ export async function GET(req: NextRequest) {
           );
         });
 
-        const customWorking = scheduleMap[dayOfWeek];
-        const isScheduledOff = customWorking !== undefined ? !customWorking : dayOfWeek === 0; // Default Minggu libur
+        const empSched = scheduleMap[dayOfWeek];
+        const isScheduledOff = empSched ? !empSched.isWorking : dayOfWeek === 0;
         const isWeekendOrHoliday = isHolidaySetting || isScheduledOff;
 
         if (approvedPermission) {
           const pType = (approvedPermission.type || 'Izin').trim();
-          let code = 'I';
-          let color = 'bg-blue-100 text-blue-700 font-bold';
+          const lowerType = pType.toLowerCase();
 
-          if (pType.toLowerCase().includes('sakit')) {
-            code = 'S';
-            color = 'bg-purple-100 text-purple-700 font-bold';
-            totalSakit++;
-          } else if (pType.toLowerCase().includes('cuti')) {
-            code = 'C';
-            color = 'bg-indigo-100 text-indigo-700 font-bold';
-            totalCuti++;
-          } else {
-            totalIzin++;
+          // A. Pengecekan Izin Terlambat
+          if (lowerType.includes('terlambat') || lowerType.includes('late')) {
+            totalTerlambat++;
+            dailyStatus[day] = {
+              status: 'Terlambat',
+              code: 'T',
+              color: 'bg-amber-100 text-amber-800 font-bold',
+              checkIn: record?.checkIn || undefined,
+            };
           }
-
-          dailyStatus[day] = {
-            status: pType,
-            code,
-            color,
-          };
+          // B. Pengecekan Sakit ('S', 'Sakit', 'SK', 'Izin Sakit')
+          else if (lowerType === 's' || lowerType.includes('sakit') || lowerType.includes('sick') || lowerType === 'sk') {
+            totalSakit++;
+            dailyStatus[day] = {
+              status: pType || 'Sakit',
+              code: 'S',
+              color: 'bg-purple-100 text-purple-700 font-bold',
+            };
+          }
+          // C. Pengecekan Cuti ('C', 'Cuti')
+          else if (lowerType === 'c' || lowerType.includes('cuti') || lowerType.includes('leave')) {
+            totalCuti++;
+            dailyStatus[day] = {
+              status: pType || 'Cuti',
+              code: 'C',
+              color: 'bg-indigo-100 text-indigo-700 font-bold',
+            };
+          }
+          // D. Izin Lainnya
+          else {
+            totalIzin++;
+            dailyStatus[day] = {
+              status: pType || 'Izin',
+              code: 'I',
+              color: 'bg-blue-100 text-blue-700 font-bold',
+            };
+          }
         } else if (record && (isValidTime(record.checkIn) || record.status === 'Hadir' || record.status === 'Terlambat')) {
+          const targetStartTime = empSched?.startTime || '07:15';
+          const checkInTime = record.checkIn || '00:00';
+
+          const scanInMinutes = timeToMinutes(checkInTime);
+          const targetMinutes = timeToMinutes(targetStartTime);
+
           const isLate =
+            (scanInMinutes > targetMinutes && isValidTime(record.checkIn)) ||
             record.flagColor === 'amber' ||
             record.status === 'Terlambat' ||
             (record.earlyLeaveReason && record.earlyLeaveReason.includes('Terlambat'));
@@ -190,7 +225,7 @@ export async function GET(req: NextRequest) {
         summary: {
           hadirTepat: totalHadirTepat,
           terlambat: totalTerlambat,
-          hadir: totalHadirTepat + totalTerlambat, // Total gabungan Kehadiran
+          hadir: totalHadirTepat + totalTerlambat,
           mangkir: totalMangkir,
           izin: totalIzin,
           sakit: totalSakit,

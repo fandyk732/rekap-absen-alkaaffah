@@ -83,7 +83,6 @@ export async function GET(req: NextRequest) {
 
     // Default Jam Kerja dari Global Setting
     const defaultGlobalWorkStart = globalSetting?.workStartTime || '07:15';
-    const defaultGlobalWorkEnd = globalSetting?.workEndTime || '14:00';
 
     const formattedMonth = String(month).padStart(2, '0');
 
@@ -200,12 +199,36 @@ export async function GET(req: NextRequest) {
 
       if (approvedPermission) {
         const pType = (approvedPermission.type || 'Izin').trim();
-        status = pType;
-        ket = approvedPermission.reason || `${pType} Disetujui`;
+        const lowerType = pType.toLowerCase();
 
-        if (pType.toLowerCase().includes('sakit')) countSakit++;
-        else if (pType.toLowerCase().includes('cuti')) countCuti++;
-        else countIzin++;
+        // A. Pengecekan Izin Terlambat
+        if (lowerType.includes('terlambat') || lowerType.includes('late')) {
+          countTerlambat++;
+          status = 'Terlambat';
+          ket = approvedPermission.reason || 'Izin Terlambat Disetujui';
+          if (hasScan && record) {
+            checkIn = isValidTime(record.checkIn) ? record.checkIn! : '-';
+            checkOut = isValidTime(record.checkOut) ? record.checkOut! : '-';
+          }
+        } 
+        // B. Pengecekan Sakit ('S', 'Sakit', 'SK', 'Izin Sakit')
+        else if (lowerType === 's' || lowerType.includes('sakit') || lowerType.includes('sick') || lowerType === 'sk') {
+          countSakit++;
+          status = 'Sakit';
+          ket = approvedPermission.reason || 'Sakit (Surat/Izin Disetujui)';
+        } 
+        // C. Pengecekan Cuti ('C', 'Cuti')
+        else if (lowerType === 'c' || lowerType.includes('cuti') || lowerType.includes('leave')) {
+          countCuti++;
+          status = 'Cuti';
+          ket = approvedPermission.reason || 'Cuti Disetujui';
+        } 
+        // D. Izin Murni
+        else {
+          countIzin++;
+          status = 'Izin';
+          ket = approvedPermission.reason || 'Izin Disetujui';
+        }
       } else if (hasScan && record) {
         checkIn = isValidTime(record.checkIn) ? record.checkIn! : '-';
         checkOut = isValidTime(record.checkOut) ? record.checkOut! : '-';
